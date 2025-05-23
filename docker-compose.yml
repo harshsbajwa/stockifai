@@ -1,0 +1,194 @@
+version: '3.8'
+
+services:
+  # --- Kafka Ecosystem ---
+  zookeeper:
+    image: bitnami/zookeeper:3.9
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/bitnami/zookeeper
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    networks:
+      - stocknet
+
+  kafka:
+    image: bitnami/kafka:3.7
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    volumes:
+      - kafka_data:/bitnami/kafka
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9093,EXTERNAL_PLAINTEXT://localhost:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL_PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9093,EXTERNAL_PLAINTEXT://0.0.0.0:9094
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+    depends_on:
+      - zookeeper
+    networks:
+      - stocknet
+
+  # --- Databases ---
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password
+      - DOCKER_INFLUXDB_INIT_ORG=stockifai
+      - DOCKER_INFLUXDB_INIT_BUCKET=stockdata
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=mySuperSecretToken123!
+    networks:
+      - stocknet
+
+  cassandra:
+    image: cassandra:4.1
+    ports:
+      - "9042:9042"
+      # - "7199:7199"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=MyStockCluster
+      - CASSANDRA_DC=dc1
+      - CASSANDRA_RACK=rack1
+      # For development
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=256M
+    networks:
+      - stocknet
+    # healthcheck:
+    #   test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+    #   interval: 15s
+    #   timeout: 10s
+    #   retries: 10
+
+  # --- Applications ---
+  stream:
+    build:
+      context: .
+      dockerfile: stream/Dockerfile
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+    depends_on:
+      - kafka
+    networks:
+      - stocknet
+    ports:
+      - "8081:8080"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    ports:
+      - "8000:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - SPRING_DATA_CASSANDRA_CONTACT_POINTS=cassandra
+      - SPRING_DATA_CASSANDRA_PORT=9042
+      - SPRING_DATA_CASSANDRA_LOCAL_DATACENTER=dc1
+      - SPRING_DATA_CASSANDRA_KEYSPACE_NAME=stock_keyspace
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=mySuperSecretToken123!
+      - INFLUXDB_ORG=my-org
+      - INFLUXDB_BUCKET=stockdata
+    depends_on:
+      - kafka
+      - influxdb
+      - cassandra
+    networks:
+      - stocknet
+
+  spark:
+    build:
+      context: .
+      dockerfile: spark/Dockerfile
+    environment:
+      - SPARK_MASTER_URL=local[*]
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_PORT=9042
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=mySuperSecretToken123!
+      - INFLUXDB_ORG=my-org
+      - INFLUXDB_BUCKET=stockdata
+    command: >
+      /opt/spark/bin/spark-submit
+      --class com.harshsbajwa.stockifai.spark.Main
+      --master local[*]
+      --conf "spark.driver.extraJavaOptions=-Dlog4j.configurationFile=/opt/spark/conf/log4j2.properties"
+      --conf "spark.executor.extraJavaOptions=-Dlog4j.configurationFile=/opt/spark/conf/log4j2.properties"
+      /opt/spark-app/app.jar
+    volumes:
+      - ./spark/log4j2.properties:/opt/spark/conf/log4j2.properties
+    depends_on:
+      - kafka
+      - influxdb
+      - cassandra
+    networks:
+      - stocknet
+
+  # --- Monitoring & Visualization ---
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - stocknet
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning/:/etc/grafana/provisioning/
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - INFLUXDB_TOKEN=mySuperSecretToken123!
+    depends_on:
+      - prometheus
+      - influxdb
+    networks:
+      - stocknet
+
+# --- Volumes ---
+volumes:
+  zookeeper_data:
+  kafka_data:
+  influxdb_data:
+  cassandra_data:
+  prometheus_data:
+  grafana_data:
+
+# --- Networks ---
+networks:
+  stocknet:
+    driver: bridge
