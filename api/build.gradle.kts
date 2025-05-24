@@ -32,6 +32,8 @@ tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
     archiveFileName.set("api.jar")
 }
 
+tasks.withType<Test> { useJUnitPlatform() }
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }
