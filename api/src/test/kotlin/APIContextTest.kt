@@ -29,8 +29,11 @@ class APIContextTest {
             CassandraContainer(DockerImageName.parse("cassandra:5.0.4"))
                 .withExposedPorts(9042)
                 .waitingFor(Wait.forListeningPort())
-                .waitingFor(Wait.forLogMessage(".*Starting listening for CQL clients.*\\n", 1)
-                    .withStartupTimeout(Duration.ofSeconds(60)))
+                .waitingFor(
+                    Wait
+                        .forLogMessage(".*Starting listening for CQL clients.*\\n", 1)
+                        .withStartupTimeout(Duration.ofSeconds(60)),
+                )
 
         // For InfluxDB 2.x
         @Container

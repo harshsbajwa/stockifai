@@ -146,20 +146,20 @@ object Processing {
         // Prepare statements
         stockInsertStatement =
             cassandraSession.prepare(
-                """
+            """
             INSERT INTO processed_stocks (symbol, timestamp, current_price, volume, volatility,
                                         price_change, price_change_percent, volume_average,
                                         risk_score, trend, support, resistance)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+            """,
             )
 
         indicatorInsertStatement =
             cassandraSession.prepare(
-                """
+            """
             INSERT INTO economic_indicators (indicator, timestamp, value, country)
             VALUES (?, ?, ?, ?)
-        """,
+            """,
             )
 
         logger.info(
@@ -174,7 +174,7 @@ object Processing {
             """
             CREATE KEYSPACE IF NOT EXISTS $keyspaceName
             WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
-        """,
+            """,
         )
 
         // Create processed_stocks table
@@ -195,7 +195,7 @@ object Processing {
                 resistance double,
                 PRIMARY KEY (symbol, timestamp)
             ) WITH CLUSTERING ORDER BY (timestamp DESC)
-        """,
+            """,
         )
 
         // Create economic_indicators table
@@ -208,7 +208,7 @@ object Processing {
                 country text,
                 PRIMARY KEY (indicator, timestamp)
             ) WITH CLUSTERING ORDER BY (timestamp DESC)
-        """,
+            """,
         )
 
         logger.info("Cassandra schema created/verified for keyspace $keyspaceName")

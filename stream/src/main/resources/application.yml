@@ -29,12 +29,8 @@ management:
 
 app:
   stocks: ${MONITORED_STOCKS:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,NFLX,CRM,AMD}
-  alphavantage:
-    api:
-      key: ${ALPHAVANTAGE_API_KEY:}
-  fred:
-    api:
-      key: ${FRED_API_KEY:}
+  finnhub:    
+    baseUrl: https://finnhub.io/api/v1
 
 logging:
   level:

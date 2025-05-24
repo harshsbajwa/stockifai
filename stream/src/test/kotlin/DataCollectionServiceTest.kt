@@ -27,15 +27,17 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.kafka.ConfluentKafkaContainer
 import org.testcontainers.utility.DockerImageName
 import java.time.Duration
+import java.time.Instant
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 @Testcontainers
 @ExtendWith(SpringExtension::class)
 @SpringBootTest(
-    classes = [Application::class, AppConfig::class, DataCollectionService::class]
+    classes = [Application::class, AppConfig::class, DataCollectionService::class],
 )
 @ActiveProfiles("test")
 class DataCollectionServiceTest {
@@ -43,7 +45,10 @@ class DataCollectionServiceTest {
     private lateinit var scheduledAnnotationBeanPostProcessor: ScheduledAnnotationBeanPostProcessor
 
     @Autowired private lateinit var dataCollectionService: DataCollectionService
+
+    @Suppress("unused")
     @Autowired private lateinit var kafkaTemplate: KafkaTemplate<String, String>
+
     @Autowired private lateinit var objectMapper: ObjectMapper
 
     private lateinit var kafkaConsumer: KafkaConsumer<String, String>
@@ -63,28 +68,27 @@ class DataCollectionServiceTest {
         @BeforeAll
         fun beforeAllTests() {
             staticMockWebServer = MockWebServer()
-            staticMockWebServer.start()
+            staticMockWebServer.start(0) // Start on a random available port
             logger.info("MockWebServer started on port: ${staticMockWebServer.port}")
 
-            // Explicitly create topics
             val adminClientConfig = Properties()
             adminClientConfig[AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG] = kafkaContainer.bootstrapServers
             AdminClient.create(adminClientConfig).use { adminClient ->
-                val topicsToCreate = listOf(
-                    NewTopic("stock_prices", 1, 1.toShort()),
-                    NewTopic("economic_indicators", 1, 1.toShort()),
-                    NewTopic("intraday_data", 1, 1.toShort())
-                )
+                val topicsToCreate =
+                    listOf(
+                        NewTopic("stock_prices", 1, 1.toShort()),
+                        NewTopic("economic_indicators", 1, 1.toShort()),
+                        NewTopic("intraday_data", 1, 1.toShort()),
+                    )
                 try {
                     adminClient.createTopics(topicsToCreate).all().get(30, TimeUnit.SECONDS)
                     logger.info("Kafka topics created: stock_prices, economic_indicators, intraday_data")
                 } catch (e: Exception) {
-                    logger.error("Failed to create Kafka topics, tests might fail.", e)
-                    // It's possible topics exist from a previous partial run, check if they exist
                     val existingTopics = adminClient.listTopics().names().get(10, TimeUnit.SECONDS)
-                    logger.info("Existing topics: $existingTopics")
-                    if (!existingTopics.containsAll(topicsToCreate.map { it.name() } )) {
-                        // throw IllegalStateException("Could not ensure Kafka topics are created", e)
+                    if (!existingTopics.containsAll(topicsToCreate.map { it.name() })) {
+                         logger.error("Failed to create Kafka topics, tests might fail.", e)
+                    } else {
+                        logger.warn("Topics likely already existed. Proceeding with tests.", e)
                     }
                 }
             }
@@ -103,24 +107,22 @@ class DataCollectionServiceTest {
             registry.add("spring.kafka.bootstrap-servers", kafkaContainer::getBootstrapServers)
 
             val mockUrl = "http://localhost:${staticMockWebServer.port}"
-            logger.info("Configuring mock base URL: $mockUrl")
-            registry.add("app.yahoo.baseUrl") { mockUrl }
+            logger.info("Configuring mock base URL for Finnhub & FRED: $mockUrl")
+            registry.add("app.finnhub.baseUrl") { mockUrl }
             registry.add("app.fred.baseUrl") { mockUrl }
-            registry.add("app.alphavantage.baseUrl") { mockUrl }
 
-            registry.add("app.stocks") { "TESTAAPL" }
-            registry.add("app.alphavantage.api.key") { "TEST_AV_KEY" }
+
+            registry.add("app.stocks") { "TESTFINN" } 
+            registry.add("app.finnhub.api.key") { "TEST_FINNHUB_KEY" }
             registry.add("app.fred.api.key") { "TEST_FRED_KEY" }
-            registry.add("spring.task.scheduling.enabled") { "false" } 
+            registry.add("spring.task.scheduling.enabled") { "false" }
         }
     }
 
     @BeforeEach
     fun setUp() {
-        // Drain any pending requests from mockWebServer from previous tests if any
-        while(staticMockWebServer.takeRequest(0, TimeUnit.SECONDS) != null) {
-            // draining
-        }
+        // Drain any pending requests
+        while (staticMockWebServer.takeRequest(0, TimeUnit.MILLISECONDS) != null) { /*_*/ }
 
         val consumerProps = Properties()
         consumerProps[ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG] = kafkaContainer.bootstrapServers
@@ -150,114 +152,203 @@ class DataCollectionServiceTest {
             if (!consumedRecords.isEmpty) {
                 logger.debug("Consumed ${consumedRecords.count()} records from $topic on poll ${++polls}")
                 consumedRecords.forEach { records.add(it.value()) }
-            } else if (System.currentTimeMillis() > endTime && records.size < expectedCount) {
-                logger.warn("Timeout waiting for messages on $topic. Expected $expectedCount, got ${records.size}")
             }
         }
         if (records.size < expectedCount) {
-             logger.warn("Failed to consume $expectedCount messages from $topic within $timeoutSeconds seconds. Got ${records.size}.")
+            logger.warn(
+                "Timeout or insufficient messages on $topic. Expected $expectedCount, got ${records.size}. Total requests to MockWebServer: ${staticMockWebServer.requestCount}",
+            )
         }
         return records
     }
 
     @Test
-    fun `collectStockData should fetch and send data to Kafka`() {
-        val mockYahooResponse =
+    fun `collectStockData should fetch from Finnhub and send to Kafka`() {
+        val mockFinnhubResponse =
             """
             {
-                "quoteResponse": {
-                    "result": [
-                        {
-                            "symbol": "TESTAAPL",
-                            "regularMarketPrice": 150.0,
-                            "regularMarketVolume": 100000,
-                            "regularMarketChangePercent": 0.5,
-                            "regularMarketDayHigh": 152.0,
-                            "regularMarketDayLow": 148.0
-                        }
-                    ]
-                }
+                "c": 175.0,
+                "h": 178.0,
+                "l": 172.0,
+                "o": 173.0,
+                "pc": 170.0,
+                "t": ${Instant.now().epochSecond},
+                "dp": 2.94 
             }
             """.trimIndent()
 
         staticMockWebServer.enqueue(
             MockResponse()
-                .setBody(mockYahooResponse)
+                .setBody(mockFinnhubResponse)
                 .addHeader("Content-Type", "application/json"),
         )
-        logger.info("Mock response enqueued for collectStockData")
+        logger.info("Mock Finnhub response enqueued for collectStockData (TESTFINN)")
 
         dataCollectionService.collectStockData()
-        logger.info("collectStockData invoked")
+        logger.info("collectStockData invoked for Finnhub")
 
         val messages = consumeMessages("stock_prices", 1, timeoutSeconds = 15)
-        assertTrue(messages.isNotEmpty(), "No message received from stock_prices topic after 15s. MockWebServer requests: ${staticMockWebServer.requestCount}")
-        if (messages.isNotEmpty()) {
-            val sentMessage = objectMapper.readValue(messages[0], StockMessage::class.java)
-            assertEquals("stock_quote", sentMessage.messageType)
-            val quoteData = objectMapper.convertValue(sentMessage.data, com.harshsbajwa.stockifai.stream.YahooFinanceQuote::class.java)
-            assertEquals("TESTAAPL", quoteData.symbol)
-            assertEquals(150.0, quoteData.regularMarketPrice)
-            logger.info("Successfully validated message on stock_prices")
-        } else {
-            // Check if request was made
-            val request = staticMockWebServer.takeRequest(1, TimeUnit.SECONDS)
-            if (request == null) {
-                logger.error("MockWebServer did not receive a request for collectStockData.")
-            } else {
-                logger.info("MockWebServer received request: ${request.path}")
-            }
-        }
+        assertTrue(
+            messages.isNotEmpty(),
+            "No message received from stock_prices topic after 15s. MockWebServer requests: ${staticMockWebServer.requestCount}",
+        )
+
+        val request = staticMockWebServer.takeRequest(2, TimeUnit.SECONDS)
+        assertNotNull(request, "MockWebServer did not receive a request for TESTFINN quote.")
+        assertTrue(request.path!!.contains("/quote?symbol=TESTFINN&token=TEST_FINNHUB_KEY"))
+
+        val sentMessage = objectMapper.readValue(messages[0], StockMessage::class.java)
+        assertEquals("stock_quote", sentMessage.messageType)
+        val quoteData = objectMapper.convertValue(sentMessage.data, StockQuoteData::class.java)
+        assertEquals("TESTFINN", quoteData.symbol)
+        assertEquals(175.0, quoteData.regularMarketPrice)
+        assertEquals(null, quoteData.regularMarketVolume) // Volume is null from Finnhub /quote
+        assertEquals(2.94, quoteData.regularMarketChangePercent)
+        assertEquals(178.0, quoteData.regularMarketDayHigh)
+        assertEquals(173.0, quoteData.regularMarketOpen)
+        assertEquals(170.0, quoteData.previousClosePrice)
+        logger.info("Successfully validated message on stock_prices from Finnhub")
     }
 
     @Test
-    fun `collectMarketVolatility should fetch VIX and send to Kafka`() {
-        val mockVixResponse =
+    fun `collectMarketVolatility from FRED should fetch VIXCLS and send to Kafka`() {
+        val testDate = "2025-05-20"
+        val testVixValue = 15.75
+        val mockFredVixclsResponse =
             """
             {
-                "quoteResponse": {
-                    "result": [
-                        {
-                            "symbol": "^VIX",
-                            "regularMarketPrice": 20.5
-                        }
-                    ]
+              "realtime_start": "2025-05-23",
+              "realtime_end": "2025-05-23",
+              "observation_start": "1990-01-02",
+              "observation_end": "9999-12-31",
+              "units": "lin",
+              "output_type": 1,
+              "file_type": "json",
+              "order_by": "observation_date",
+              "sort_order": "desc",
+              "count": 1,
+              "offset": 0,
+              "limit": 1,
+              "observations": [
+                {
+                  "realtime_start": "2025-05-23",
+                  "realtime_end": "2025-05-23",
+                  "date": "$testDate",
+                  "value": "$testVixValue"
                 }
+              ]
             }
             """.trimIndent()
 
         staticMockWebServer.enqueue(
             MockResponse()
-                .setBody(mockVixResponse)
+                .setBody(mockFredVixclsResponse)
                 .addHeader("Content-Type", "application/json"),
         )
-        logger.info("Mock response enqueued for collectMarketVolatility")
+        logger.info("Mock FRED response enqueued for VIXCLS")
 
         dataCollectionService.collectMarketVolatility()
-        logger.info("collectMarketVolatility invoked")
+        logger.info("collectMarketVolatility invoked for FRED VIXCLS")
 
         val messages = consumeMessages("economic_indicators", 1, timeoutSeconds = 15)
         assertTrue(
             messages.isNotEmpty(),
-            "No message received from economic_indicators topic for VIX after 15s. MockWebServer requests: ${staticMockWebServer.requestCount}",
+            "No message received from economic_indicators for VIXCLS. MockWebServer requests: ${staticMockWebServer.requestCount}",
         )
 
-        if (messages.isNotEmpty()) {
-            val sentMessage = objectMapper.readValue(messages[0], StockMessage::class.java)
-            assertEquals("volatility_indicator", sentMessage.messageType)
-            val indicatorData =
-                objectMapper.convertValue(sentMessage.data, com.harshsbajwa.stockifai.stream.EconomicIndicator::class.java)
-            assertEquals("VIX", indicatorData.indicator)
-            assertEquals(20.5, indicatorData.value)
-            logger.info("Successfully validated message on economic_indicators for VIX")
-        } else {
-            // Check if request was made
-            val request = staticMockWebServer.takeRequest(1, TimeUnit.SECONDS) 
-            if (request == null) {
-                logger.error("MockWebServer did not receive a request for collectMarketVolatility.")
-            } else {
-                logger.info("MockWebServer received request: ${request.path}")
+        val request = staticMockWebServer.takeRequest(5, TimeUnit.SECONDS)
+        assertNotNull(request, "MockWebServer did not receive a request for FRED VIXCLS.")
+        val requestUrl = request.requestUrl
+        assertNotNull(requestUrl, "Request URL from MockWebServer is null")
+
+        assertTrue(
+            requestUrl.encodedPath.endsWith("/fred/series/observations"),
+            "Request path segment should be /fred/series/observations. Actual: ${requestUrl.encodedPath}"
+        )
+        assertEquals(
+            "VIXCLS",
+            requestUrl.queryParameter("series_id"),
+            "Query parameter 'series_id' should be 'VIXCLS'. Actual: ${requestUrl.queryParameter("series_id")}"
+        )
+        assertEquals(
+            "TEST_FRED_KEY",
+            requestUrl.queryParameter("api_key"),
+            "Query parameter 'api_key' is not matching."
+        )
+        assertEquals("json", requestUrl.queryParameter("file_type"))
+        assertEquals("1", requestUrl.queryParameter("limit"))
+        assertEquals("desc", requestUrl.queryParameter("sort_order"))
+
+
+        val sentMessage = objectMapper.readValue(messages[0], StockMessage::class.java)
+        assertEquals("volatility_indicator", sentMessage.messageType)
+        val indicatorData =
+            objectMapper.convertValue(sentMessage.data, EconomicIndicator::class.java)
+        assertEquals("VIXCLS", indicatorData.indicator)
+        assertEquals(testVixValue, indicatorData.value)
+        assertEquals(testDate, indicatorData.date)
+        assertNotNull(indicatorData.timestamp)
+        logger.info("Successfully validated VIXCLS message on economic_indicators from FRED")
+    }
+    
+    @Test
+    fun `collectFinnhubIntradayCandleData should fetch SPY candles from Finnhub`() {
+        val mockCandleResponse = """
+            {
+                "c": [200.5, 201.0],
+                "h": [201.5, 201.2],
+                "l": [200.0, 200.8],
+                "o": [200.2, 200.5],
+                "s": "ok",
+                "t": [${Instant.now().minusSeconds(300).epochSecond}, ${Instant.now().epochSecond}],
+                "v": [1000, 1200]
             }
-        }
+        """.trimIndent()
+
+        staticMockWebServer.enqueue(
+            MockResponse().setBody(mockCandleResponse).addHeader("Content-Type", "application/json")
+        )
+        logger.info("Mock Finnhub candle response for SPY enqueued.")
+
+        dataCollectionService.collectFinnhubIntradayCandleData()
+        logger.info("collectFinnhubIntradayCandleData invoked.")
+
+        val messages = consumeMessages("intraday_data", 1, timeoutSeconds = 15)
+        assertTrue(messages.isNotEmpty(), "No message received for intraday_data (SPY candles). MockWebServer requests: ${staticMockWebServer.requestCount}")
+
+        val request = staticMockWebServer.takeRequest(2, TimeUnit.SECONDS)
+        assertNotNull(request, "MockWebServer did not receive a request for SPY candles.")
+        assertTrue(request.path!!.contains("/stock/candle?symbol=SPY&resolution=5"))
+        assertTrue(request.path!!.contains("&token=TEST_FINNHUB_KEY"))
+
+        val sentMessage = objectMapper.readValue(messages[0], StockMessage::class.java)
+        assertEquals("intraday_data", sentMessage.messageType)
+        @Suppress("UNCHECKED_CAST")
+        val dataMap = sentMessage.data as Map<String, Any>
+        assertEquals("SPY", dataMap["symbol"])
+        assertEquals(mockCandleResponse, dataMap["data"]) // Should be the raw JSON string
+        logger.info("Successfully validated SPY candle data message from Finnhub.")
+    }
+
+     @Test
+    fun `collectStockData handles empty or invalid Finnhub response gracefully`() {
+        // Simulate Finnhub returning an empty JSON object, which it does for some errors/invalid symbols
+        val mockEmptyResponse = "{}"
+        staticMockWebServer.enqueue(
+            MockResponse().setBody(mockEmptyResponse).addHeader("Content-Type", "application/json")
+        )
+        logger.info("Mock empty Finnhub response enqueued for collectStockData (TESTFINN_EMPTY)")
+
+        dataCollectionService.collectStockData()
+        logger.info("collectStockData invoked for Finnhub with empty response scenario")
+
+        val request = staticMockWebServer.takeRequest(2, TimeUnit.SECONDS)
+        assertNotNull(request, "MockWebServer did not receive a request for TESTFINN quote (empty response test).")
+        assertTrue(request.path!!.contains("/quote?symbol=TESTFINN&token=TEST_FINNHUB_KEY"))
+
+        // Check that no message was sent to Kafka for this invalid response
+        val messages = consumeMessages("stock_prices", 0, timeoutSeconds = 2) // Expect 0 messages quickly
+        assertTrue(messages.isEmpty(), "A message was unexpectedly sent to stock_prices for an empty Finnhub response.")
+        logger.info("Validated that empty/invalid Finnhub response does not lead to Kafka message.")
     }
 }

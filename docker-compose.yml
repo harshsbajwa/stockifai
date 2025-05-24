@@ -164,7 +164,7 @@ services:
       - INFLUXDB_BUCKET=stockdata
     command: >
       /opt/spark/bin/spark-submit
-      --class com.harshsbajwa.stockifai.spark.SparkProcessorApplication
+      --class com.harshsbajwa.stockifai.processing
       --master local[*]
       --conf "spark.driver.extraJavaOptions=-Dlog4j.configurationFile=/opt/spark/conf/log4j2.properties"
       --conf "spark.executor.extraJavaOptions=-Dlog4j.configurationFile=/opt/spark/conf/log4j2.properties"
