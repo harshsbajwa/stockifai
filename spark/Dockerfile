@@ -22,19 +22,6 @@ ARG HADOOP_VERSION=3
 ENV SPARK_HOME=/opt/spark
 ENV PATH=$SPARK_HOME/bin:$SPARK_HOME/sbin:$PATH
 
-RUN echo "Attempting to use apk. Current PATH: $PATH" && \
-  echo "Looking for apk executable..." && \
-  ls -l /sbin/apk /usr/sbin/apk /bin/apk /usr/bin/apk || echo "apk not found by ls in common locations" && \
-  echo "Running 'which apk'..." && \
-  which apk || echo "apk not found by 'which apk'" && \
-  echo "Running 'apk --version'..." && \
-  apk --version || echo "apk --version failed" && \
-  echo "Running 'apk update'..." && \
-  apk update --no-cache && \
-  echo "Running 'apk add curl'..." && \
-  apk add --no-cache curl && \
-  echo "curl added successfully"
-
 # Install necessary tools download/extract Spark
 RUN apk update && apk add --no-cache bash curl tar wget \
   && wget https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -O /tmp/spark.tgz \
@@ -42,7 +29,7 @@ RUN apk update && apk add --no-cache bash curl tar wget \
   && mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} ${SPARK_HOME} \
   && rm /tmp/spark.tgz
 
-COPY --from=builder /app/spark/build/libs/spark-app.jar ./app.jar
+COPY --from=builder /app/spark/build/libs/spark-processor.jar ./app.jar
 
 # Create basic configuration files
 RUN echo "spark.serializer=org.apache.spark.serializer.KryoSerializer" > $SPARK_HOME/conf/spark-defaults.conf && \

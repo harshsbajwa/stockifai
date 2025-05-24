@@ -4,7 +4,7 @@ val springBootVersion = "3.5.0"
 val kotlinVersion = "2.1.21"
 val sparkVersion = "3.5.5"
 val kafkaVersion = "4.0.0"
-val libericaJdkVersion = "24.0.1"
+val libericaJdkVersion = "21"
 
 plugins {
     kotlin("jvm") version "2.1.21" apply false

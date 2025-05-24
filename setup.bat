@@ -42,7 +42,7 @@ docker-compose exec kafka kafka-topics.sh --create --topic intraday_data --boots
 
 echo.
 echo Step 5: Starting all services...
-docker-compose up -d
+COMPOSE_BAKE=true docker-compose up -d --build
 
 echo.
 echo ========================================

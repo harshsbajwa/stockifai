@@ -1,4 +1,4 @@
-# StockiFAI - Real-time Stock Market Volatility Monitor
+# stockifai - Real-time Stock Market Volatility Monitor
 
 A comprehensive real-time stock market volatility and risk monitoring system built with modern technologies.
 
