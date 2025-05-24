@@ -6,14 +6,36 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
       retries: 3
+      properties:
+        metadata.max.age.ms: 1000
     consumer:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
       enable-auto-commit: false
+      properties:
+        metadata.max.age.ms: 1000
+  task:
+    scheduling:
+      enabled: false
 
 logging:
   level:
     com.harshsbajwa.stockifai: DEBUG
     org.apache.kafka: WARN
     org.testcontainers: INFO
+    reactor.netty.http.client: DEBUG
+
+app:
+  stocks: TESTAAPL # Default for tests
+  # Base URLs will be overridden by DynamicPropertySource to use MockWebServer
+  alphavantage:
+    api:
+      key: TEST_AV_KEY
+    baseUrl: http://localhost:12345 # Dummy
+  fred:
+    api:
+      key: TEST_FRED_KEY
+    baseUrl: http://localhost:12345 # Dummy
+  yahoo:
+    baseUrl: http://localhost:12345 # Dummy

@@ -1,4 +1,4 @@
-package com.yourusername.stockmonitor.api
+package com.harshsbajwa.stockifai.application
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication

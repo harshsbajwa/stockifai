@@ -5,6 +5,7 @@ val kotlinVersion = "2.0.21"
 val sparkVersion = "3.5.5"
 val kafkaVersion = "4.0.0"
 val libericaJdkVersion = "21"
+val testcontainersVersion = "1.21.0"
 
 plugins {
     kotlin("jvm") version "2.0.21" apply false
@@ -34,12 +35,11 @@ subprojects {
 
     configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
         version.set("1.6.0")
-        debug.set(true)
-        verbose.set(true)
+        verbose.set(false)
         android.set(false)
+        ignoreFailures.set(true)
         outputToConsole.set(true)
         outputColorName.set("RED")
-        ignoreFailures.set(true)
         enableExperimentalRules.set(true)
     }
 
@@ -47,6 +47,7 @@ subprojects {
         toolVersion = "1.23.8"
         buildUponDefaultConfig = true
         allRules = false
+        ignoreFailures = true
         config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
     }
 

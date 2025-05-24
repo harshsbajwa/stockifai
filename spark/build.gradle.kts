@@ -3,7 +3,7 @@ plugins {
     application
 }
 
-description = "Processes real-time data streams using Apache Spark"
+description = "Processes real-time data streams using Apache Spark Structured Streaming"
 
 application {
     mainClass.set("com.harshsbajwa.stockifai.spark.SparkProcessorApplication")
@@ -29,17 +29,16 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
-    // Spark Core
+    // Spark Core and SQL
     compileOnly("org.apache.spark:spark-core_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
     compileOnly("org.apache.spark:spark-sql_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
-    compileOnly("org.apache.spark:spark-streaming_2.12:$sparkVersion") {
-        exclude(group = "org.slf4j", module = "slf4j-log4j12")
-    }
-    compileOnly("org.apache.spark:spark-streaming-kafka-0-10_2.12:$sparkVersion") {
+
+    // Spark Structured Streaming with Kafka
+    compileOnly("org.apache.spark:spark-sql-kafka-0-10_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
 
@@ -70,6 +69,14 @@ dependencies {
     testImplementation("org.testcontainers:junit-jupiter:1.20.4")
     testImplementation("org.testcontainers:kafka:1.20.4")
     testImplementation("org.testcontainers:cassandra:1.20.4")
+
+    // Spark testing
+    testImplementation("org.apache.spark:spark-core_2.12:$sparkVersion") {
+        exclude(group = "org.slf4j", module = "slf4j-log4j12")
+    }
+    testImplementation("org.apache.spark:spark-sql_2.12:$sparkVersion") {
+        exclude(group = "org.slf4j", module = "slf4j-log4j12")
+    }
 }
 
 tasks.test {
@@ -82,6 +89,10 @@ tasks.test {
             "java.base/java.util=ALL-UNNAMED",
             "--add-opens",
             "java.base/java.nio=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.nio.ch=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.security.action=ALL-UNNAMED",
         )
 }
 
@@ -89,7 +100,6 @@ tasks.test {
 tasks.jar {
     enabled = true
     archiveFileName.set("spark-processor.jar")
-
     isZip64 = true
 
     manifest {
@@ -113,10 +123,11 @@ tasks.jar {
         exclude("META-INF/*.RSA")
         exclude("META-INF/LICENSE*")
         exclude("META-INF/NOTICE*")
+        exclude("META-INF/versions/**")
     }
 }
 
-// Task to run the application locally
+// Task to run the application locally with environment variables
 tasks.register<JavaExec>("runLocal") {
     dependsOn("classes")
     classpath = sourceSets.main.get().runtimeClasspath
@@ -126,17 +137,26 @@ tasks.register<JavaExec>("runLocal") {
     systemProperties =
         mapOf(
             "spark.master" to "local[*]",
-            "spark.app.name" to "StockifAI-Spark-Local",
+            "spark.app.name" to "StockifAI-StructuredStreaming-Local",
             "spark.sql.adaptive.enabled" to "true",
             "spark.sql.adaptive.coalescePartitions.enabled" to "true",
+            "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
         )
 
     // Set environment variables for local testing
     environment =
         mapOf(
+            // Kafka Configuration
             "KAFKA_BOOTSTRAP_SERVERS" to "localhost:9092",
-            "SPARK_BATCH_INTERVAL_SECONDS" to "5",
-            "KAFKA_CONSUMER_GROUP_ID" to "local-spark-group",
             "KAFKA_TOPICS" to "stock_prices,economic_indicators",
+            // InfluxDB Configuration
+            "INFLUXDB_URL" to "http://localhost:8086",
+            "INFLUXDB_TOKEN" to "your-influxdb-token",
+            "INFLUXDB_ORG" to "stockifai",
+            "INFLUXDB_BUCKET" to "stocks",
+            // Cassandra Configuration
+            "CASSANDRA_HOST" to "localhost",
+            "CASSANDRA_PORT" to "9042",
+            "CASSANDRA_KEYSPACE" to "stockifai",
         )
 }

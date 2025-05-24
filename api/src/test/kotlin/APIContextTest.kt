@@ -1,5 +1,6 @@
-package com.yourusername.stockmonitor.api
+package com.harshsbajwa.stockifai.api
 
+import com.harshsbajwa.stockifai.application.Application
 import org.junit.jupiter.api.Test
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.ActiveProfiles
@@ -7,13 +8,15 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.cassandra.CassandraContainer
 import org.testcontainers.containers.GenericContainer
+import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.kafka.ConfluentKafkaContainer
 import org.testcontainers.utility.DockerImageName
+import java.time.Duration
 
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(classes = [Application::class])
 @ActiveProfiles("test")
 class APIContextTest {
     companion object {
@@ -23,7 +26,11 @@ class APIContextTest {
 
         @Container
         val cassandraContainer =
-            CassandraContainer(DockerImageName.parse("cassandra:5.0.4")).withExposedPorts(9042)
+            CassandraContainer(DockerImageName.parse("cassandra:5.0.4"))
+                .withExposedPorts(9042)
+                .waitingFor(Wait.forListeningPort())
+                .waitingFor(Wait.forLogMessage(".*Starting listening for CQL clients.*\\n", 1)
+                    .withStartupTimeout(Duration.ofSeconds(60)))
 
         // For InfluxDB 2.x
         @Container
@@ -44,7 +51,9 @@ class APIContextTest {
 
             registry.add("spring.data.cassandra.contact-points") { cassandraContainer.host }
             registry.add("spring.data.cassandra.port") { cassandraContainer.getMappedPort(9042) }
-            registry.add("spring.data.cassandra.local-datacenter") { cassandraContainer.localDatacenter }
+            registry.add("spring.data.cassandra.local-datacenter") {
+                cassandraContainer.localDatacenter
+            }
             registry.add("spring.data.cassandra.keyspace-name") { "test_keyspace" }
 
             registry.add("influxdb.url") {

@@ -1,8 +1,21 @@
 plugins {
     kotlin("jvm")
-    kotlin("plugin.spring") version "2.1.21"
+    kotlin("plugin.spring") version "2.0.21"
     id("org.springframework.boot")
     id("io.spring.dependency-management")
+}
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+        freeCompilerArgs.addAll(listOf("-Xjsr305=strict"))
+    }
 }
 
 description = "Spring Boot API server for the stock monitor"
@@ -25,14 +38,18 @@ dependencies {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
     }
     testImplementation("org.springframework.kafka:spring-kafka-test")
+
+    // Test containers
+    testImplementation("org.testcontainers:testcontainers:1.21.0")
+    testImplementation("org.testcontainers:junit-jupiter:1.21.0")
+    testImplementation("org.testcontainers:cassandra:1.21.0")
+    testImplementation("org.testcontainers:kafka:1.21.0")
 }
 
 tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
     enabled = true
     archiveFileName.set("api.jar")
 }
-
-tasks.withType<Test> { useJUnitPlatform() }
 
 tasks.withType<Test> {
     useJUnitPlatform()
