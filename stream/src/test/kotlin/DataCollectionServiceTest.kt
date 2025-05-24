@@ -29,23 +29,21 @@ import kotlin.test.assertTrue
 @ExtendWith(SpringExtension::class)
 @SpringBootTest(
     classes = [Application::class, AppConfig::class, DataCollectionService::class],
-    properties = [
-        "app.stocks=TESTAAPL",
-        "app.alphavantage.api.key=TEST_AV_KEY",
-        "app.fred.api.key=TEST_FRED_KEY",
-    ],
+    properties =
+        [
+            "app.stocks=TESTAAPL",
+            "app.alphavantage.api.key=TEST_AV_KEY",
+            "app.fred.api.key=TEST_FRED_KEY",
+        ],
 )
 @ActiveProfiles("test")
 class DataCollectionServiceTest {
-    @Autowired
-    private lateinit var dataCollectionService: DataCollectionService
+    @Autowired private lateinit var dataCollectionService: DataCollectionService
 
     // KafkaTemplate will be autoconfigured by Spring Boot to use the Testcontainer's Kafka
-    @Autowired
-    private lateinit var kafkaTemplate: KafkaTemplate<String, String>
+    @Autowired private lateinit var kafkaTemplate: KafkaTemplate<String, String>
 
-    @Autowired
-    private lateinit var objectMapper: ObjectMapper
+    @Autowired private lateinit var objectMapper: ObjectMapper
 
     private lateinit var mockWebServer: MockWebServer
     private lateinit var kafkaConsumer: KafkaConsumer<String, String>
@@ -71,9 +69,12 @@ class DataCollectionServiceTest {
 
         val consumerProps = Properties()
         consumerProps[ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG] = kafkaContainer.bootstrapServers
-        consumerProps[ConsumerConfig.GROUP_ID_CONFIG] = "test-data-collection-consumer-${UUID.randomUUID()}"
-        consumerProps[ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG] = StringDeserializer::class.java.name
-        consumerProps[ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG] = StringDeserializer::class.java.name
+        consumerProps[ConsumerConfig.GROUP_ID_CONFIG] =
+            "test-data-collection-consumer-${UUID.randomUUID()}"
+        consumerProps[ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG] =
+            StringDeserializer::class.java.name
+        consumerProps[ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG] =
+            StringDeserializer::class.java.name
         consumerProps[ConsumerConfig.AUTO_OFFSET_RESET_CONFIG] = "earliest"
         kafkaConsumer = KafkaConsumer(consumerProps)
     }
@@ -120,9 +121,7 @@ class DataCollectionServiceTest {
             """.trimIndent()
 
         mockWebServer.enqueue(
-            MockResponse()
-                .setBody(mockYahooResponse)
-                .addHeader("Content-Type", "application/json"),
+            MockResponse().setBody(mockYahooResponse).addHeader("Content-Type", "application/json"),
         )
 
         dataCollectionService.collectStockData()
@@ -154,9 +153,7 @@ class DataCollectionServiceTest {
             """.trimIndent()
 
         mockWebServer.enqueue(
-            MockResponse()
-                .setBody(mockVixResponse)
-                .addHeader("Content-Type", "application/json"),
+            MockResponse().setBody(mockVixResponse).addHeader("Content-Type", "application/json"),
         )
 
         dataCollectionService.collectMarketVolatility()
