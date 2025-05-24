@@ -9,3 +9,6 @@ build
 
 # Ignore IntelliJ IDEA project files
 .idea/
+
+# Ignore kotlin project files
+.kotlin/

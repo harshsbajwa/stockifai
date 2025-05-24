@@ -44,6 +44,8 @@ logging:
 
 ---
 spring:
-  profiles: docker
-kafka:
-  bootstrap-servers: kafka:9093
+  config:
+    activate:
+      on-profile: docker
+  kafka:
+    bootstrap-servers: kafka:9093

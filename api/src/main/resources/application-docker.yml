@@ -1,0 +1,9 @@
+spring:
+  data:
+    cassandra:
+      contact-points: cassandra
+      port: 9042
+      local-datacenter: dc1
+      schema-action: CREATE_IF_NOT_EXISTS
+  kafka:
+    bootstrap-servers: kafka:9093

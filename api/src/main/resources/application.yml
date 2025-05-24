@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: stockifai-api
+  data:
+    cassandra:
+      contact-points: 127.0.0.1
+      port: 9042
+      local-datacenter: dc1
+      keyspace-name: ${SPRING_DATA_CASSANDRA_KEYSPACE_NAME:stock_keyspace}
+      schema-action: CREATE_IF_NOT_EXISTS
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true

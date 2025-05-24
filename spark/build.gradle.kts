@@ -30,16 +30,16 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     
     // Spark Core
-    implementation("org.apache.spark:spark-core_2.13:$sparkVersion") {
+    compileOnly("org.apache.spark:spark-core_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
-    implementation("org.apache.spark:spark-sql_2.13:$sparkVersion") {
+    compileOnly("org.apache.spark:spark-sql_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
-    implementation("org.apache.spark:spark-streaming_2.13:$sparkVersion") {
+    compileOnly("org.apache.spark:spark-streaming_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
-    implementation("org.apache.spark:spark-streaming-kafka-0-10_2.13:$sparkVersion") {
+    compileOnly("org.apache.spark:spark-streaming-kafka-0-10_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
     
@@ -52,7 +52,7 @@ dependencies {
     // InfluxDB client
     implementation("com.influxdb:influxdb-client-kotlin:7.3.0")
     
-    // Cassandra driver - using correct version
+    // Cassandra driver
     implementation("org.apache.cassandra:java-driver-core:4.19.0")
     implementation("org.apache.cassandra:java-driver-query-builder:4.19.0")
     implementation("org.apache.cassandra:java-driver-mapper-runtime:4.19.0")
