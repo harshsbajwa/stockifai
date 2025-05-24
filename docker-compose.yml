@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # --- Kafka Ecosystem ---
   zookeeper:
@@ -12,6 +10,11 @@ services:
       - ALLOW_ANONYMOUS_LOGIN=yes
     networks:
       - stocknet
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 2181 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   kafka:
     image: bitnami/kafka:3.7
@@ -30,10 +33,17 @@ services:
       - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
       - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
       - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     networks:
       - stocknet
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9093 --list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # --- Databases ---
   influxdb:
@@ -51,28 +61,31 @@ services:
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=mySuperSecretToken123!
     networks:
       - stocknet
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8086/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   cassandra:
     image: cassandra:4.1
     ports:
       - "9042:9042"
-      # - "7199:7199"
     volumes:
       - cassandra_data:/var/lib/cassandra
     environment:
       - CASSANDRA_CLUSTER_NAME=MyStockCluster
       - CASSANDRA_DC=dc1
       - CASSANDRA_RACK=rack1
-      # For development
       - MAX_HEAP_SIZE=1G
       - HEAP_NEWSIZE=256M
     networks:
       - stocknet
-    # healthcheck:
-    #   test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
-    #   interval: 15s
-    #   timeout: 10s
-    #   retries: 10
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
 
   # --- Applications ---
   stream:
@@ -83,12 +96,22 @@ services:
       - SPRING_PROFILES_ACTIVE=docker
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - ALPHAVANTAGE_API_KEY=${ALPHAVANTAGE_API_KEY}
+      - FRED_API_KEY=${FRED_API_KEY}
+      - MONITORED_STOCKS=${MONITORED_STOCKS}
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     networks:
       - stocknet
     ports:
       - "8081:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   api:
     build:
@@ -106,14 +129,23 @@ services:
       - SPRING_DATA_CASSANDRA_KEYSPACE_NAME=stock_keyspace
       - INFLUXDB_URL=http://influxdb:8086
       - INFLUXDB_TOKEN=mySuperSecretToken123!
-      - INFLUXDB_ORG=my-org
+      - INFLUXDB_ORG=stockifai
       - INFLUXDB_BUCKET=stockdata
     depends_on:
-      - kafka
-      - influxdb
-      - cassandra
+      kafka:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
     networks:
       - stocknet
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   spark:
     build:
@@ -126,23 +158,26 @@ services:
       - CASSANDRA_PORT=9042
       - INFLUXDB_URL=http://influxdb:8086
       - INFLUXDB_TOKEN=mySuperSecretToken123!
-      - INFLUXDB_ORG=my-org
+      - INFLUXDB_ORG=stockifai
       - INFLUXDB_BUCKET=stockdata
     command: >
       /opt/spark/bin/spark-submit
-      --class com.harshsbajwa.stockifai.spark.Main
+      --class com.harshsbajwa.stockifai.spark.SparkProcessorApplication
       --master local[*]
       --conf "spark.driver.extraJavaOptions=-Dlog4j.configurationFile=/opt/spark/conf/log4j2.properties"
       --conf "spark.executor.extraJavaOptions=-Dlog4j.configurationFile=/opt/spark/conf/log4j2.properties"
+      --conf "spark.sql.streaming.checkpointLocation=/tmp/spark-checkpoint"
       /opt/spark-app/app.jar
-    volumes:
-      - ./spark/log4j2.properties:/opt/spark/conf/log4j2.properties
     depends_on:
-      - kafka
-      - influxdb
-      - cassandra
+      kafka:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
     networks:
       - stocknet
+    restart: unless-stopped
 
   # --- Monitoring & Visualization ---
   prometheus:
@@ -167,7 +202,7 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./docker/grafana/provisioning/:/etc/grafana/provisioning/
+      - ./docker/prometheus/grafana/provisioning/:/etc/grafana/provisioning/
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

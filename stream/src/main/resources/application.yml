@@ -1,0 +1,49 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: stockifai-stream
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+app:
+  stocks: ${MONITORED_STOCKS:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,NFLX,CRM,AMD}
+  alphavantage:
+    api:
+      key: ${ALPHAVANTAGE_API_KEY:}
+  fred:
+    api:
+      key: ${FRED_API_KEY:}
+
+logging:
+  level:
+    com.harshsbajwa.stockifai: INFO
+    org.apache.kafka: WARN
+    reactor.netty: WARN
+
+---
+spring:
+  profiles: docker
+kafka:
+  bootstrap-servers: kafka:9093

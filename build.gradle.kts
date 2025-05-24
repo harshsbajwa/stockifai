@@ -12,34 +12,45 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7" apply false
 }
 
-repositories {
-    group = "com.harshsbajwa.stockifai"
-    version = "0.0.1-SNAPSHOT"
+group = "com.harshsbajwa.stockifai"
+version = "0.0.1-SNAPSHOT"
+
+allprojects {
     repositories {
         mavenCentral()
     }
 }
 
 subprojects {
-    apply(plugin = "java-library")
-    apply(plugin = "kotlin.jvm")
-
-    java {
+    apply(plugin = "org.jetbrains.kotlin.jvm")
+    apply(plugin = "java")
+    
+    configure<JavaPluginExtension> {
         sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_24
+        targetCompatibility = JavaVersion.VERSION_21
         toolchain {
-            languageVersion = JavaLanguageVersion.of(24)
+            languageVersion = JavaLanguageVersion.of(21)
         }
     }
-
+    
     tasks.withType<KotlinCompile>().configureEach {
-        kotlinOptions {
-            jvmTarget = JavaVersion.VERSION_24.toString()
-            freeCompilerArgs = listOf("-Xjsr305=strict")
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+            freeCompilerArgs.addAll(listOf("-Xjsr305=strict", "-opt-in=kotlin.RequiresOptIn"))
         }
     }
-
-    tasks.named<Test>("test") {
+    
+    tasks.withType<Test> {
         useJUnitPlatform()
+        jvmArgs = listOf(
+            "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+            "--add-opens", "java.base/java.util=ALL-UNNAMED"
+        )
     }
+    
+    // Set extra properties for subprojects
+    extra["springBootVersion"] = springBootVersion
+    extra["sparkVersion"] = sparkVersion
+    extra["kafkaVersion"] = kafkaVersion
+    extra["libericaJdkVersion"] = libericaJdkVersion
 }
