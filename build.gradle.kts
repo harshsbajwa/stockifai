@@ -10,6 +10,8 @@ plugins {
     kotlin("jvm") version "2.1.21" apply false
     id("org.springframework.boot") version "3.5.0" apply false
     id("io.spring.dependency-management") version "1.1.7" apply false
+    id("org.jlleitschuh.gradle.ktlint") version "12.3.0" apply false
+    id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
 }
 
 group = "com.harshsbajwa.stockifai"
@@ -23,6 +25,8 @@ allprojects {
 
 subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
+    apply(plugin = "org.jlleitschuh.gradle.ktlint")
+    apply(plugin = "io.gitlab.arturbosch.detekt")
     apply(plugin = "java")
     
     configure<JavaPluginExtension> {
@@ -32,6 +36,24 @@ subprojects {
             languageVersion = JavaLanguageVersion.of(21)
         }
     }
+
+    configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+        version.set("1.6.0")
+        debug.set(true)
+        verbose.set(true)
+        android.set(false)
+        outputToConsole.set(true)
+        outputColorName.set("RED")
+        ignoreFailures.set(true)
+        enableExperimentalRules.set(true)
+    }
+
+    configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
+        toolVersion = "1.23.8"
+        buildUponDefaultConfig = true
+        allRules = false
+        config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
+     }
     
     tasks.withType<KotlinCompile>().configureEach {
         compilerOptions {
