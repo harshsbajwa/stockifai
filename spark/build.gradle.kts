@@ -6,7 +6,7 @@ plugins {
 description = "Processes real-time data streams using Apache Spark Structured Streaming"
 
 application {
-    mainClass.set("com.harshsbajwa.stockifai.spark.SparkProcessorApplication")
+    mainClass.set("com.harshsbajwa.stockifai.processing.Processing")
 }
 
 java {
@@ -66,34 +66,76 @@ dependencies {
     // Testing
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
-    testImplementation("org.testcontainers:junit-jupiter:1.20.4")
-    testImplementation("org.testcontainers:kafka:1.20.4")
-    testImplementation("org.testcontainers:cassandra:1.20.4")
+    
+    // TestContainers
+    testImplementation(platform("org.testcontainers:testcontainers-bom:1.20.4"))
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:kafka")
+    testImplementation("org.testcontainers:cassandra")
+    testImplementation("org.testcontainers:influxdb")
+    
+    // Kotlin test
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 
-    // Spark testing
+    // Spark testing - need full spark jars for tests
     testImplementation("org.apache.spark:spark-core_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
     testImplementation("org.apache.spark:spark-sql_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
+    testImplementation("org.apache.spark:spark-sql-kafka-0-10_2.12:$sparkVersion") {
+        exclude(group = "org.slf4j", module = "slf4j-log4j12")
+    }
+    
+    // Additional database clients for testing
+    testImplementation("com.influxdb:influxdb-client-kotlin:7.3.0")
+    testImplementation("org.apache.cassandra:java-driver-core:4.19.0")
+    
+    // Kafka clients for test data production
+    testImplementation("org.apache.kafka:kafka-clients:3.8.1")
 }
 
 tasks.test {
     useJUnitPlatform()
-    jvmArgs =
-        listOf(
-            "--add-opens",
-            "java.base/java.lang=ALL-UNNAMED",
-            "--add-opens",
-            "java.base/java.util=ALL-UNNAMED",
-            "--add-opens",
-            "java.base/java.nio=ALL-UNNAMED",
-            "--add-opens",
-            "java.base/sun.nio.ch=ALL-UNNAMED",
-            "--add-opens",
-            "java.base/sun.security.action=ALL-UNNAMED",
-        )
+    
+    // Increase memory for Spark tests
+    minHeapSize = "1g"
+    maxHeapSize = "4g"
+    
+    jvmArgs = listOf(
+        "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+        "--add-opens", "java.base/java.util=ALL-UNNAMED", 
+        "--add-opens", "java.base/java.nio=ALL-UNNAMED",
+        "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
+        "--add-opens", "java.base/sun.security.action=ALL-UNNAMED",
+        "--add-opens", "java.base/java.io=ALL-UNNAMED",
+        "--add-opens", "java.base/java.net=ALL-UNNAMED",
+        "--add-opens", "java.base/sun.nio.fs=ALL-UNNAMED",
+        
+        // Spark specific JVM args
+        "-Djava.security.manager=default",
+        "-Dio.netty.tryReflectionSetAccessible=true"
+    )
+    
+    // System properties for tests
+    systemProperties = mapOf(
+        "spark.master" to "local[2]",
+        "spark.app.name" to "SparkProcessorTest",
+        "spark.sql.adaptive.enabled" to "true",
+        "spark.sql.adaptive.coalescePartitions.enabled" to "true",
+        "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true"
+    )
+    
+    // Parallel test execution
+    maxParallelForks = 1 // Keep at 1 for integration tests to avoid resource conflicts
+    
+    // Test logging
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
 }
 
 // Create a fat JAR for deployment
@@ -104,7 +146,7 @@ tasks.jar {
 
     manifest {
         attributes(
-            "Main-Class" to "com.harshsbajwa.stockifai.spark.SparkProcessorApplication",
+            "Main-Class" to "com.harshsbajwa.stockifai.processing.Processing",
             "Implementation-Title" to project.name,
             "Implementation-Version" to project.version,
         )
@@ -131,17 +173,16 @@ tasks.jar {
 tasks.register<JavaExec>("runLocal") {
     dependsOn("classes")
     classpath = sourceSets.main.get().runtimeClasspath
-    mainClass.set("com.harshsbajwa.stockifai.spark.SparkProcessorApplication")
+    mainClass.set("com.harshsbajwa.stockifai.processing.Processing")
 
     // Set local Spark configuration
-    systemProperties =
-        mapOf(
-            "spark.master" to "local[*]",
-            "spark.app.name" to "StockifAI-StructuredStreaming-Local",
-            "spark.sql.adaptive.enabled" to "true",
-            "spark.sql.adaptive.coalescePartitions.enabled" to "true",
-            "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
-        )
+    systemProperties = mapOf(
+        "spark.master" to "local[*]",
+        "spark.app.name" to "StockifAI-StructuredStreaming-Local",
+        "spark.sql.adaptive.enabled" to "true",
+        "spark.sql.adaptive.coalescePartitions.enabled" to "true",
+        "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
+    )
 
     // Set environment variables for local testing
     environment =

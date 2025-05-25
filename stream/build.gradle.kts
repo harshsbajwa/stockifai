@@ -5,7 +5,7 @@ plugins {
     id("io.spring.dependency-management")
 }
 
-description = "Collects data from Yahoo Finance API and sends to Kafka"
+description = "Collects data from Finnhub and FRED APIs and sends to Kafka"
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")

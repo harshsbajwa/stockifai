@@ -11,36 +11,50 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.retry.annotation.Backoff
+import org.springframework.retry.annotation.EnableRetry
+import org.springframework.retry.annotation.Retryable
 import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import org.springframework.web.util.UriComponentsBuilder
 import reactor.core.publisher.Mono
+import reactor.util.retry.Retry
+import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
-@SpringBootApplication @EnableScheduling
+@SpringBootApplication
+@EnableScheduling 
+@EnableRetry
 class Application
 
 fun main(args: Array<String>) {
-    println("Starting Data Stream Collector...")
+    println("Starting Stockifai Data Stream Collector...")
     runApplication<Application>(*args)
-    println("Data Stream Collector has started.")
+    println("Stockifai Data Stream Collector has started successfully.")
 }
 
-// Data Models
+// Enhanced Data Models
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class StockQuoteData(
     val symbol: String,
     val regularMarketPrice: Double?,
-    val regularMarketVolume: Long?, // Volume is not available from Finnhub /quote, will be null
-    val regularMarketChangePercent: Double?, // From Finnhub 'dp'
-    val regularMarketDayHigh: Double?, // From Finnhub 'h'
-    val regularMarketDayLow: Double?, // From Finnhub 'l'
-    val regularMarketOpen: Double?, // From Finnhub 'o'
-    val previousClosePrice: Double?, // From Finnhub 'pc'
-    val timestamp: Long // From Finnhub 't' (epoch seconds)
+    val regularMarketVolume: Long?,
+    val regularMarketChangePercent: Double?,
+    val regularMarketDayHigh: Double?,
+    val regularMarketDayLow: Double?,
+    val regularMarketOpen: Double?,
+    val previousClosePrice: Double?,
+    val timestamp: Long,
+    val marketState: String = "REGULAR" // REGULAR, PRE, POST, CLOSED
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -57,13 +71,13 @@ data class FinnhubQuote(
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class FinnhubStockCandles(
-    @JsonProperty("o") val o: List<Double>? = null,
-    @JsonProperty("h") val h: List<Double>? = null,
-    @JsonProperty("l") val l: List<Double>? = null,
-    @JsonProperty("c") val c: List<Double>? = null,
-    @JsonProperty("v") val v: List<Long>? = null,
-    @JsonProperty("t") val t: List<Long>? = null,
-    @JsonProperty("s") val s: String? = null, // Status ok or no_data
+    @JsonProperty("o") val open: List<Double>? = null,
+    @JsonProperty("h") val high: List<Double>? = null,
+    @JsonProperty("l") val low: List<Double>? = null,
+    @JsonProperty("c") val close: List<Double>? = null,
+    @JsonProperty("v") val volume: List<Long>? = null,
+    @JsonProperty("t") val timestamps: List<Long>? = null,
+    @JsonProperty("s") val status: String? = null, // "ok" or "no_data"
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -72,26 +86,35 @@ data class EconomicIndicator(
     val value: Double,
     val date: String,
     val timestamp: Long = Instant.now().epochSecond,
+    val source: String = "FRED"
 )
 
-// Data class for individual FRED observation
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class FredObservation(
     val date: String? = null,
-    val value: String? = null // FRED values can be "." for missing, so keep as String initially
+    val value: String? = null
 )
 
-// Data class for the root FRED response
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class FredSeriesResponse(
     val observations: List<FredObservation>? = null
 )
 
-// Kafka message wrapper
+// Enhanced Kafka message wrapper with metadata
 data class StockMessage(
     val messageType: String,
     val data: Any,
     val timestamp: Long = Instant.now().epochSecond,
+    val source: String = "stockifai-stream",
+    val version: String = "1.0"
+)
+
+// Health and metrics tracking
+data class ServiceMetrics(
+    val successfulRequests: AtomicLong = AtomicLong(0),
+    val failedRequests: AtomicLong = AtomicLong(0),
+    val lastSuccessfulCollection: AtomicLong = AtomicLong(0),
+    val apiQuotaUsage: ConcurrentHashMap<String, AtomicLong> = ConcurrentHashMap()
 )
 
 @Service
@@ -100,9 +123,13 @@ class DataCollectionService(
     private val objectMapper: ObjectMapper,
 ) {
     private val logger = LoggerFactory.getLogger(DataCollectionService::class.java)
-    private val webClient = WebClient.builder().build()
+    private val webClient = WebClient.builder()
+        .codecs { configurer -> configurer.defaultCodecs().maxInMemorySize(1024 * 1024) }
+        .build()
+    
+    private val metrics = ServiceMetrics()
 
-    @Value("\${app.stocks:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,BRK-A,JNJ,V}")
+    @Value("\${app.stocks:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,BRK.A,JNJ,V,SPY,QQQ}")
     private lateinit var stockSymbols: String
 
     @Value("\${app.finnhub.api.key:#{null}}")
@@ -111,290 +138,377 @@ class DataCollectionService(
     @Value("\${app.fred.api.key:#{null}}")
     private val fredApiKey: String? = null
 
-    private val stockList: List<String> by lazy { stockSymbols.split(",").map { it.trim() } }
-
     @Value("\${app.finnhub.baseUrl:https://finnhub.io/api/v1}")
     private lateinit var finnhubBaseUrl: String
 
     @Value("\${app.fred.baseUrl:https://api.stlouisfed.org}")
     private lateinit var fredBaseUrl: String
 
+    @Value("\${app.collection.enabled:true}")
+    private val collectionEnabled: Boolean = true
+
+    @Value("\${app.market.hours.only:false}")
+    private val marketHoursOnly: Boolean = false
+
+    private val stockList: List<String> by lazy { 
+        stockSymbols.split(",").map { it.trim() }.filter { it.isNotBlank() }
+    }
+
+    // Economic indicators to track
+    private val economicIndicators = listOf(
+        "FEDFUNDS" to "Federal Funds Rate",
+        "VIXCLS" to "VIX Volatility Index",
+        "DGS10" to "10-Year Treasury Rate",
+        "UNRATE" to "Unemployment Rate",
+        "CPIAUCSL" to "Consumer Price Index"
+    )
+
     @PostConstruct
     fun init() {
-        logger.info("Data Collection Service initialized")
-        logger.info("Monitoring stocks: {}", stockList)
-        logger.info("FRED API configured: {}", fredApiKey != null)
+        logger.info("=== Stockifai Data Collection Service Initialized ===")
+        logger.info("Collection enabled: {}", collectionEnabled)
+        logger.info("Market hours only: {}", marketHoursOnly)
+        logger.info("Monitoring {} stocks: {}", stockList.size, stockList)
+        logger.info("Economic indicators configured: {}", economicIndicators.size)
         logger.info("Finnhub API configured: {}", finnhubApiKey != null)
+        logger.info("FRED API configured: {}", fredApiKey != null)
+        
         if (finnhubApiKey == null) {
-            logger.warn("FINNHUB_API_KEY is not set. Stock and VIX data collection will be skipped.")
+            logger.warn("FINNHUB_API_KEY is not set. Stock data collection will be skipped.")
         }
+        if (fredApiKey == null) {
+            logger.warn("FRED_API_KEY is not set. Economic indicators collection will be skipped.")
+        }
+        
+        // Validate Kafka connectivity
+        validateKafkaConnectivity()
+    }
+
+    private fun validateKafkaConnectivity() {
+        try {
+            val testMessage = StockMessage("health_check", mapOf("status" to "ok"))
+            val messageJson = objectMapper.writeValueAsString(testMessage)
+            kafkaTemplate.send("stock_prices", "HEALTH_CHECK", messageJson).get()
+            logger.info("Kafka connectivity validated successfully")
+        } catch (e: Exception) {
+            logger.error("Kafka connectivity validation failed: {}", e.message)
+        }
+    }
+
+    private fun isMarketHours(): Boolean {
+        if (!marketHoursOnly) return true
+        
+        val now = Instant.now().atZone(ZoneOffset.of("-05:00")) // EST
+        val hour = now.hour
+        val dayOfWeek = now.dayOfWeek.value
+        
+        // Monday (1) to Friday (5), 9:30 AM to 4:00 PM EST
+        return dayOfWeek in 1..5 && hour in 9..16
     }
 
     @Scheduled(fixedRate = 30000) // Every 30 seconds
+    @Retryable(value = [Exception::class], maxAttempts = 3, backoff = Backoff(delay = 1000))
     fun collectStockData() {
-        if (finnhubApiKey == null) {
-            logger.debug("Finnhub API key not set, skipping stock data collection.")
+        if (!collectionEnabled || finnhubApiKey == null || !isMarketHours()) {
+            logger.debug("Stock data collection skipped - enabled: {}, api_key: {}, market_hours: {}", 
+                collectionEnabled, finnhubApiKey != null, isMarketHours())
             return
         }
-        logger.info("Starting stock data collection cycle using Finnhub...")
+
+        logger.info("Starting stock data collection cycle for {} symbols...", stockList.size)
+        val startTime = System.currentTimeMillis()
 
         stockList.forEach { symbol ->
-            val finnhubUrl =
-                UriComponentsBuilder
-                    .fromUriString("$finnhubBaseUrl/quote")
-                    .queryParam("symbol", symbol)
-                    .queryParam("token", finnhubApiKey)
-                    .toUriString()
-
-            webClient
-                .get()
-                .uri(finnhubUrl)
-                .retrieve()
-                .bodyToMono(FinnhubQuote::class.java)
-                .doOnSuccess { finnhubQuote ->
-                    if (finnhubQuote.currentPrice == null && finnhubQuote.timestamp == null) {
-                        // Finnhub often returns an empty object {} for invalid symbols or issues,
-                        // rather than an HTTP error. currentPrice is a good indicator.
-                        logger.warn("Received empty or invalid quote data for symbol {}: {}", symbol, finnhubQuote)
-                        return@doOnSuccess
-                    }
-                    val stockQuote =
-                        StockQuoteData(
-                            symbol = symbol,
-                            regularMarketPrice = finnhubQuote.currentPrice,
-                            regularMarketVolume = null, // Finnhub /quote does not provide volume
-                            regularMarketChangePercent = finnhubQuote.percentChange,
-                            regularMarketDayHigh = finnhubQuote.highPriceOfDay,
-                            regularMarketDayLow = finnhubQuote.lowPriceOfDay,
-                            regularMarketOpen = finnhubQuote.openPriceOfDay,
-                            previousClosePrice = finnhubQuote.previousClosePrice,
-                            timestamp = finnhubQuote.timestamp ?: Instant.now().epochSecond,
-                        )
-                    try {
-                        val message = StockMessage("stock_quote", stockQuote)
-                        val messageJson = objectMapper.writeValueAsString(message)
-                        kafkaTemplate.send("stock_prices", symbol, messageJson)
-                        logger.debug(
-                            "Sent stock data for {}: {}",
-                            symbol,
-                            stockQuote.regularMarketPrice,
-                        )
-                    } catch (e: JsonProcessingException) {
-                        logger.error("JSON serialization error for {}: {}", symbol, e.message)
-                    } catch (e: KafkaException) {
-                        logger.error("Kafka error sending data for {}: {}", symbol, e.message)
-                    } catch (e: IllegalArgumentException) {
-                        logger.error("Invalid data for {}: {}", symbol, e.message)
-                    } catch (e: RuntimeException) {
-                        logger.error("Unexpected error for {}: {}", symbol, e.message)
-                    }
-                }.doOnError { error ->
-                    logger.error("Error fetching Finnhub quote for {}: {}", symbol, error.message)
-                }.onErrorResume { Mono.empty() }
-                .subscribe()
+            collectStockQuote(symbol)
         }
-        // No overall success log here as calls are per-symbol
+
+        val duration = System.currentTimeMillis() - startTime
+        logger.info("Completed stock data collection cycle in {}ms", duration)
+        metrics.lastSuccessfulCollection.set(Instant.now().epochSecond)
     }
 
-    @Scheduled(fixedRate = 300000) // Every 5 minutes (or adjust as needed for VIX)
-fun collectMarketVolatility() {
-    if (fredApiKey == null) {
-        logger.warn("FRED API key not configured, skipping VIXCLS data collection.")
-        return
-    }
-    logger.info("Collecting VIXCLS data using FRED...")
+    private fun collectStockQuote(symbol: String) {
+        val finnhubUrl = UriComponentsBuilder
+            .fromUriString("$finnhubBaseUrl/quote")
+            .queryParam("symbol", symbol)
+            .queryParam("token", finnhubApiKey)
+            .toUriString()
 
-    val seriesId = "VIXCLS"
-
-    webClient
-        .get()
-        .uri(
-            "$fredBaseUrl/fred/series/observations?series_id={seriesId}&api_key={apiKey}&file_type=json&limit=1&sort_order=desc",
-            mapOf(
-                "seriesId" to seriesId,
-                "apiKey" to fredApiKey,
-            )
-        )
-        .retrieve()
-        .bodyToMono(String::class.java)
-        .doOnSuccess { responseString ->
-            try {
-                logger.debug("Received FRED VIXCLS response string: {}", responseString.take(300) + "...")
-                val fredResponse = objectMapper.readValue(responseString, FredSeriesResponse::class.java)
-
-                val latestObservation = fredResponse.observations?.firstOrNull()
-                if (latestObservation?.value == null || latestObservation.value == "." || latestObservation.date == null) {
-                    logger.warn("No valid VIXCLS observation found in FRED response or value is '.'. Response: {}", responseString.take(500))
-                    return@doOnSuccess
-                }
-
-                val vixValue = latestObservation.value.toDoubleOrNull()
-                if (vixValue == null) {
-                    logger.warn("Could not parse VIXCLS value '{}' from FRED response", latestObservation.value)
-                    return@doOnSuccess
-                }
-
-                val indicator =
-                    EconomicIndicator(
-                        indicator = seriesId, // "VIXCLS"
-                        value = vixValue,
-                        date = latestObservation.date, // Date from FRED
-                        timestamp = Instant.now().epochSecond // Current processing time as timestamp
-                    )
-                val message = StockMessage("volatility_indicator", indicator)
-                val messageJson = objectMapper.writeValueAsString(message)
-
-                kafkaTemplate.send("economic_indicators", seriesId, messageJson)
-                logger.info("Sent {} data from FRED: {} on {}", seriesId, vixValue, latestObservation.date)
-
-            } catch (e: JsonProcessingException) {
-                logger.error("JSON processing error for FRED {} data: {}. Response: {}", seriesId, e.message, responseString.take(500))
-            } catch (e: KafkaException) {
-                logger.error("Kafka error sending FRED {} data: {}", seriesId, e.message)
-            } catch (e: NoSuchElementException) {
-                 logger.warn("No observations array found or it's empty in FRED response for {}. Response: {}", seriesId, responseString.take(500))
-            } catch (e: Exception) { // Catch-all for other unexpected errors
-                logger.error("Unexpected error processing FRED {} data: {}", seriesId, e.message, e)
+        webClient.get()
+            .uri(finnhubUrl)
+            .retrieve()
+            .bodyToMono(FinnhubQuote::class.java)
+            .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
+            .timeout(Duration.ofSeconds(10))
+            .doOnSuccess { finnhubQuote ->
+                processStockQuote(symbol, finnhubQuote)
             }
-        }.doOnError { error ->
-            logger.error("Error fetching {} data from FRED: {}", seriesId, error.message)
-        }.onErrorResume { Mono.empty() }
-        .subscribe()
+            .doOnError { error ->
+                handleStockDataError(symbol, error)
+            }
+            .onErrorResume { Mono.empty() }
+            .subscribe()
+    }
+
+    private fun processStockQuote(symbol: String, finnhubQuote: FinnhubQuote) {
+        if (finnhubQuote.currentPrice == null || finnhubQuote.currentPrice <= 0) {
+            logger.warn("Invalid quote data for {}: price={}", symbol, finnhubQuote.currentPrice)
+            metrics.failedRequests.incrementAndGet()
+            return
+        }
+
+        val stockQuote = StockQuoteData(
+            symbol = symbol,
+            regularMarketPrice = finnhubQuote.currentPrice,
+            regularMarketVolume = null, // Finnhub /quote endpoint doesn't provide volume
+            regularMarketChangePercent = finnhubQuote.percentChange,
+            regularMarketDayHigh = finnhubQuote.highPriceOfDay,
+            regularMarketDayLow = finnhubQuote.lowPriceOfDay,
+            regularMarketOpen = finnhubQuote.openPriceOfDay,
+            previousClosePrice = finnhubQuote.previousClosePrice,
+            timestamp = finnhubQuote.timestamp ?: Instant.now().epochSecond,
+            marketState = determineMarketState()
+        )
+
+        publishToKafka("stock_prices", symbol, StockMessage("stock_quote", stockQuote))
+        metrics.successfulRequests.incrementAndGet()
+        metrics.apiQuotaUsage.computeIfAbsent("finnhub") { AtomicLong(0) }.incrementAndGet()
+        
+        logger.debug("{} - Price: ${%.2f}, Change: ${%.2f}%", 
+            symbol, stockQuote.regularMarketPrice, stockQuote.regularMarketChangePercent ?: 0.0)
+    }
+
+    private fun determineMarketState(): String {
+        val now = Instant.now().atZone(ZoneOffset.of("-05:00"))
+        val hour = now.hour
+        val minute = now.minute
+        val currentTime = hour * 100 + minute
+        
+        return when {
+            currentTime < 930 -> "PRE"
+            currentTime > 1600 -> "POST"
+            now.dayOfWeek.value in 1..5 -> "REGULAR"
+            else -> "CLOSED"
+        }
+    }
+
+    @Scheduled(fixedRate = 300000) // Every 5 minutes
+    @Retryable(value = [Exception::class], maxAttempts = 2, backoff = Backoff(delay = 2000))
+    fun collectMarketVolatility() {
+        if (!collectionEnabled || fredApiKey == null) {
+            logger.debug("Market volatility collection skipped - enabled: {}, fred_key: {}", 
+                collectionEnabled, fredApiKey != null)
+            return
+        }
+
+        logger.info("Collecting VIX volatility data from FRED...")
+        collectFredIndicator("VIXCLS", "volatility_indicator")
     }
 
     @Scheduled(fixedRate = 900000) // Every 15 minutes
+    @Retryable(value = [Exception::class], maxAttempts = 2, backoff = Backoff(delay = 2000))
     fun collectEconomicIndicators() {
-        if (fredApiKey == null) {
-            logger.debug("FRED API key not configured, skipping economic indicators collection.")
+        if (!collectionEnabled || fredApiKey == null) {
+            logger.debug("Economic indicators collection skipped - enabled: {}, fred_key: {}", 
+                collectionEnabled, fredApiKey != null)
             return
         }
 
         logger.info("Collecting economic indicators from FRED...")
-        val fredPathAndQuery = "/fred/series/observations?series_id=FEDFUNDS&api_key=$fredApiKey&file_type=json&limit=1&sort_order=desc"
-        val fredUrl = "$fredBaseUrl$fredPathAndQuery"
+        economicIndicators.forEach { (seriesId, description) ->
+            try {
+                collectFredIndicator(seriesId, "economic_indicator")
+                Thread.sleep(200) // Rate limiting - FRED allows 120 requests/minute
+            } catch (e: Exception) {
+                logger.error("Failed to collect indicator {}: {}", seriesId, e.message)
+            }
+        }
+    }
 
-        webClient
-            .get()
+    private fun collectFredIndicator(seriesId: String, messageType: String) {
+        val fredUrl = UriComponentsBuilder
+            .fromUriString("$fredBaseUrl/fred/series/observations")
+            .queryParam("series_id", seriesId)
+            .queryParam("api_key", fredApiKey)
+            .queryParam("file_type", "json")
+            .queryParam("limit", "1")
+            .queryParam("sort_order", "desc")
+            .toUriString()
+
+        webClient.get()
             .uri(fredUrl)
             .retrieve()
-            .bodyToMono(String::class.java) // Process as string first for robust parsing
+            .bodyToMono(String::class.java)
+            .retryWhen(Retry.backoff(2, Duration.ofSeconds(2)))
+            .timeout(Duration.ofSeconds(15))
             .doOnSuccess { responseString ->
-                try {
-                    logger.debug("Received FRED data string: {}", responseString.take(200) + "...")
-
-                    val rootNode = objectMapper.readTree(responseString)
-                    val observations = rootNode.path("observations")
-                    if (observations.isMissingNode || !observations.isArray || observations.isEmpty) {
-                        logger.warn("No observations found in FRED response for FEDFUNDS.")
-                        return@doOnSuccess
-                    }
-                    val latestObservation = observations.first()
-                    val rateValue = latestObservation.path("value").asText()
-                    val dateValue = latestObservation.path("date").asText()
-
-                    if (rateValue == "." || rateValue.isBlank()) { // FRED uses "." for unavailable data
-                        logger.warn("Federal funds rate value is unavailable in FRED response: {}", latestObservation)
-                        return@doOnSuccess
-                    }
-                    val rate = rateValue.toDoubleOrNull()
-                    if (rate == null) {
-                        logger.warn("Could not parse federal funds rate value '{}' from FRED response", rateValue)
-                        return@doOnSuccess
-                    }
-
-                    val indicator =
-                        EconomicIndicator(
-                            indicator = "FEDERAL_FUNDS_RATE",
-                            value = rate,
-                            date = dateValue,
-                        )
-
-                    val message = StockMessage("economic_indicator", indicator)
-                    val messageJson = objectMapper.writeValueAsString(message)
-
-                    kafkaTemplate.send("economic_indicators", "FEDFUNDS", messageJson)
-                    logger.info("Sent FEDFUNDS rate to Kafka: {} on {}", rate, dateValue)
-                } catch (e: JsonProcessingException) {
-                    logger.error("JSON parsing error in FRED response: {}. Response: {}", e.message, responseString.take(500))
-                } catch (e: KafkaException) {
-                    logger.error("Kafka error sending FRED data: {}", e.message)
-                } catch (e: IllegalArgumentException) {
-                    logger.error("Invalid FRED data: {}", e.message)
-                } catch (e: RuntimeException) {
-                    logger.error("Unexpected error processing FRED data: {}", e.message)
-                }
-            }.doOnError { error ->
-                logger.error("Error fetching FRED data: {}", error.message)
-            }.onErrorResume { Mono.empty() }
+                processFredResponse(seriesId, messageType, responseString)
+            }
+            .doOnError { error ->
+                handleFredError(seriesId, error)
+            }
+            .onErrorResume { Mono.empty() }
             .subscribe()
     }
 
+    private fun processFredResponse(seriesId: String, messageType: String, responseString: String) {
+        try {
+            val fredResponse = objectMapper.readValue(responseString, FredSeriesResponse::class.java)
+            val latestObservation = fredResponse.observations?.firstOrNull()
+
+            if (latestObservation?.value == null || latestObservation.value == "." || latestObservation.date == null) {
+                logger.warn("No valid {} observation found", seriesId)
+                return
+            }
+
+            val indicatorValue = latestObservation.value.toDoubleOrNull()
+            if (indicatorValue == null) {
+                logger.warn("Could not parse {} value: '{}'", seriesId, latestObservation.value)
+                return
+            }
+
+            val indicator = EconomicIndicator(
+                indicator = seriesId,
+                value = indicatorValue,
+                date = latestObservation.date,
+                timestamp = Instant.now().epochSecond
+            )
+
+            publishToKafka("economic_indicators", seriesId, StockMessage(messageType, indicator))
+            metrics.successfulRequests.incrementAndGet()
+            metrics.apiQuotaUsage.computeIfAbsent("fred") { AtomicLong(0) }.incrementAndGet()
+            
+            logger.info("{} = {} ({})", seriesId, indicatorValue, latestObservation.date)
+        } catch (e: Exception) {
+            logger.error("Error processing FRED response for {}: {}", seriesId, e.message)
+            metrics.failedRequests.incrementAndGet()
+        }
+    }
+
     @Scheduled(fixedRate = 600000) // Every 10 minutes
-    fun collectFinnhubIntradayCandleData() {
-        if (finnhubApiKey == null) {
-            logger.debug("Finnhub API key not set, skipping intraday candle data collection.")
+    fun collectIntradayData() {
+        if (!collectionEnabled || finnhubApiKey == null || !isMarketHours()) {
             return
         }
 
-        val symbol = "SPY" // Typically, intraday is monitored for a benchmark index/ETF
-        logger.info("Collecting 5-min intraday candle data for {} from Finnhub...", symbol)
-
-        val toTimestamp = Instant.now().epochSecond
-        val fromTimestamp = Instant.now().minus(1, ChronoUnit.HOURS).epochSecond // Fetch last 1 hour of 5-min candles
-
-        val finnhubUrl =
-            UriComponentsBuilder
-                .fromUriString("$finnhubBaseUrl/stock/candle")
-                .queryParam("symbol", symbol)
-                .queryParam("resolution", "5") // 5-minute candles
-                .queryParam("from", fromTimestamp)
-                .queryParam("to", toTimestamp)
-                .queryParam("token", finnhubApiKey)
-                .toUriString()
+        logger.info("Collecting intraday candle data...")
+        val symbols = listOf("SPY", "QQQ", "IWM") // Major market ETFs
         
-        webClient
-            .get()
+        symbols.forEach { symbol ->
+            collectIntradayCandles(symbol)
+        }
+    }
+
+    private fun collectIntradayCandles(symbol: String) {
+        val toTimestamp = Instant.now().epochSecond
+        val fromTimestamp = Instant.now().minus(2, ChronoUnit.HOURS).epochSecond
+
+        val finnhubUrl = UriComponentsBuilder
+            .fromUriString("$finnhubBaseUrl/stock/candle")
+            .queryParam("symbol", symbol)
+            .queryParam("resolution", "5")
+            .queryParam("from", fromTimestamp)
+            .queryParam("to", toTimestamp)
+            .queryParam("token", finnhubApiKey)
+            .toUriString()
+
+        webClient.get()
             .uri(finnhubUrl)
             .retrieve()
-            .bodyToMono(String::class.java) // Fetch as string to send raw-ish data
-            .doOnSuccess { responseString ->
-                try {
-                    // Finnhub returns {"s":"no_data"} if no candles are available.
-                    // Or potentially an empty object for bad symbols, or actual candles.
-                    // We can attempt to parse to check for no_data status
-                    val candles = objectMapper.readValue(responseString, FinnhubStockCandles::class.java)
-                    if (candles.s == "no_data" || (candles.c.isNullOrEmpty() && candles.t.isNullOrEmpty())) {
-                        logger.info("No intraday candle data available for {} in the requested window.", symbol)
-                        return@doOnSuccess
-                    }
-                    
-                    logger.debug(
-                        "Received Finnhub 5-min candles for {}: {}",
-                        symbol,
-                        responseString.take(200) + "...",
-                    )
-
-                    val message =
-                        StockMessage(
-                            "intraday_data",
-                            mapOf("symbol" to symbol, "data" to responseString), // Send the JSON string
-                        )
-                    val messageJson = objectMapper.writeValueAsString(message)
-
-                    kafkaTemplate.send("intraday_data", symbol, messageJson)
-                    logger.info("Sent Finnhub 5-min candle data for symbol: {}", symbol)
-                } catch (e: JsonProcessingException) {
-                    logger.error("JSON processing error for Finnhub candles ({}): {}. Response: {}", symbol, e.message, responseString.take(500))
-                } catch (e: KafkaException) {
-                    logger.error("Kafka error sending Finnhub candles ({}): {}", symbol, e.message)
-                } catch (e: IllegalArgumentException) {
-                    logger.error("Invalid Finnhub candle message for symbol {}: {}", symbol, e.message)
-                } catch (e: RuntimeException) {
-                    logger.error("Unexpected error processing Finnhub candles ({}): {}", symbol, e.message)
-                }
-            }.doOnError { error ->
-                logger.error("Error fetching Finnhub 5-min candles for {}: {}", symbol, error.message)
-            }.onErrorResume { Mono.empty() }
+            .bodyToMono(FinnhubStockCandles::class.java)
+            .retryWhen(Retry.backoff(2, Duration.ofSeconds(1)))
+            .timeout(Duration.ofSeconds(10))
+            .doOnSuccess { candles ->
+                processIntradayCandles(symbol, candles)
+            }
+            .doOnError { error ->
+                logger.error("Error fetching intraday data for {}: {}", symbol, error.message)
+            }
+            .onErrorResume { Mono.empty() }
             .subscribe()
+    }
+
+    private fun processIntradayCandles(symbol: String, candles: FinnhubStockCandles) {
+        if (candles.status == "no_data" || candles.close.isNullOrEmpty()) {
+            logger.debug("No intraday data available for {}", symbol)
+            return
+        }
+
+        val candleData = mapOf(
+            "symbol" to symbol,
+            "candles" to candles,
+            "count" to candles.close?.size
+        )
+
+        publishToKafka("intraday_data", symbol, StockMessage("intraday_candles", candleData))
+        logger.info("Intraday data collected for {}: {} candles", symbol, candles.close?.size ?: 0)
+    }
+
+    private fun publishToKafka(topic: String, key: String, message: StockMessage) {
+        try {
+            val messageJson = objectMapper.writeValueAsString(message)
+            kafkaTemplate.send(topic, key, messageJson)
+                .addCallback(
+                    { logger.debug("Sent to Kafka [{}]: {}", topic, key) },
+                    { ex -> logger.error("Failed to send to Kafka [{}]: {} - {}", topic, key, ex.message) }
+                )
+        } catch (e: JsonProcessingException) {
+            logger.error("JSON serialization error for {}: {}", key, e.message)
+            metrics.failedRequests.incrementAndGet()
+        } catch (e: KafkaException) {
+            logger.error("Kafka error for {}: {}", key, e.message)
+            metrics.failedRequests.incrementAndGet()
+        }
+    }
+
+    private fun handleStockDataError(symbol: String, error: Throwable) {
+        metrics.failedRequests.incrementAndGet()
+        when (error) {
+            is WebClientResponseException -> {
+                when (error.statusCode.value()) {
+                    429 -> logger.warn("Rate limit exceeded for Finnhub API ({})", symbol)
+                    403 -> logger.error("Finnhub API authentication failed ({})", symbol)
+                    else -> logger.error("Finnhub API error for {}: {} - {}", symbol, error.statusCode, error.message)
+                }
+            }
+            else -> logger.error("Error fetching stock data for {}: {}", symbol, error.message)
+        }
+    }
+
+    private fun handleFredError(seriesId: String, error: Throwable) {
+        metrics.failedRequests.incrementAndGet()
+        when (error) {
+            is WebClientResponseException -> {
+                when (error.statusCode.value()) {
+                    429 -> logger.warn("Rate limit exceeded for FRED API ({})", seriesId)
+                    400 -> logger.error("Invalid FRED API request for {}: {}", seriesId, error.message)
+                    else -> logger.error("FRED API error for {}: {} - {}", seriesId, error.statusCode, error.message)
+                }
+            }
+            else -> logger.error("Error fetching FRED data for {}: {}", seriesId, error.message)
+        }
+    }
+
+    @Scheduled(fixedRate = 60000) // Every minute
+    fun logMetrics() {
+        val successful = metrics.successfulRequests.get()
+        val failed = metrics.failedRequests.get()
+        val total = successful + failed
+        val successRate = if (total > 0) (successful * 100.0 / total) else 0.0
+        val lastSuccess = metrics.lastSuccessfulCollection.get()
+        val timeSinceLastSuccess = Instant.now().epochSecond - lastSuccess
+
+        logger.info("Metrics - Success: {}, Failed: {}, Rate: {:.1f}%, Last: {}s ago", 
+            successful, failed, successRate, timeSinceLastSuccess)
+        
+        metrics.apiQuotaUsage.forEach { (api, count) ->
+            logger.debug("API Usage - {}: {} requests", api, count.get())
+        }
+    }
+
+    @Scheduled(fixedRate = 3600000) // Every hour
+    fun resetHourlyMetrics() {
+        metrics.apiQuotaUsage.clear()
+        logger.info("Hourly API usage metrics reset")
     }
 }

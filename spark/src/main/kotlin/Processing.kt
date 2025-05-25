@@ -82,7 +82,7 @@ object Processing {
 
     @JvmStatic
     fun main(args: Array<String>) {
-        logger.info("Initializing StockifAI Spark Structured Streaming Processor...")
+        logger.info("Initializing Stockifai Spark Structured Streaming Processor...")
 
         try {
             initializeDatabaseConnections()
@@ -102,7 +102,7 @@ object Processing {
     private fun createSparkSession(): SparkSession {
         val sparkConf =
             SparkConf()
-                .setAppName("StockifAI-StructuredStreaming")
+                .setAppName("Stockifai-StructuredStreaming")
                 .set("spark.sql.adaptive.enabled", "true")
                 .set("spark.sql.adaptive.coalescePartitions.enabled", "true")
                 .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
@@ -349,9 +349,8 @@ object Processing {
             val indicators: List<EconomicIndicator> = listOfNullableIndicators.filterNotNull()
 
             indicators.forEach { indicator ->
-                writeToCassandra(
-                    indicator,
-                ) // Only Cassandra for economic indicators as per current logic
+                writeToInfluxDB(indicator)
+                writeToCassandra(indicator)
                 logger.info(
                     "Economic indicator: ${indicator.indicator} = ${indicator.value} (Timestamp: ${indicator.timestamp})",
                 )
@@ -670,6 +669,28 @@ object Processing {
             logger.debug("Written stock data to InfluxDB: ${data.symbol} at ${data.timestamp}")
         } catch (e: Exception) {
             logger.error("Failed to write stock data to InfluxDB for ${data.symbol}", e)
+        }
+    }
+
+    private fun writeToInfluxDB(data: EconomicIndicator) {
+        try {
+            val writeApi: WriteApiBlocking = influxDBClient.writeApiBlocking
+            val bucket = System.getenv("INFLUXDB_BUCKET") ?: "stockdata"
+
+            val point =
+                Point
+                    .measurement("economic_indicators")
+                    .addTag("indicator", data.indicator)
+                    .apply {
+                        data.country?.let { addTag("country", it) }
+                    }
+                    .addField("value", data.value)
+                    .time(Instant.ofEpochMilli(data.timestamp), WritePrecision.MS)
+
+            writeApi.writePoint(bucket, this.influxOrg, point)
+            logger.info("Written economic indicator to InfluxDB: ${data.indicator} = ${data.value} at ${data.timestamp}")
+        } catch (e: Exception) {
+            logger.error("Failed to write economic indicator to InfluxDB for ${data.indicator}", e)
         }
     }
 
