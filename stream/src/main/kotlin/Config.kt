@@ -22,6 +22,40 @@ import java.time.Duration
 @EnableAsync
 @EnableRetry
 class StreamConfig {
+    @ConfigurationProperties(prefix = "app")
+    data class AppProperties(
+        val stocks: String = "AAPL,GOOGL,MSFT",
+        val finnhub: FinnhubProperties = FinnhubProperties(),
+        val fred: FredProperties = FredProperties(),
+        val collection: CollectionProperties = CollectionProperties(),
+        val market: MarketProperties = MarketProperties()
+    )
+
+    data class FinnhubProperties(
+        val api: ApiProperties = ApiProperties(),
+        val baseUrl: String = "https://finnhub.io/api/v1"
+    )
+
+    data class FredProperties(
+        val api: ApiProperties = ApiProperties(),
+        val baseUrl: String = "https://api.stlouisfed.org"
+    )
+
+    data class ApiProperties(
+        val key: String? = null
+    )
+
+    data class CollectionProperties(
+        val enabled: Boolean = true
+    )
+
+    data class MarketProperties(
+        val hours: MarketHoursProperties = MarketHoursProperties()
+    )
+
+    data class MarketHoursProperties(
+        val only: Boolean = false
+    )
 
     @Value("\${spring.kafka.bootstrap-servers:localhost:9092}")
     private lateinit var bootstrapServers: String
@@ -86,9 +120,22 @@ class StreamConfig {
 
     @Bean
     fun webClient(): WebClient {
+        val connectionProvider = ConnectionProvider.builder("custom")
+            .maxConnections(50)
+            .maxIdleTime(Duration.ofSeconds(20))
+            .maxLifeTime(Duration.ofSeconds(60))
+            .pendingAcquireTimeout(Duration.ofSeconds(60))
+            .evictInBackground(Duration.ofSeconds(120))
+            .build()
+
+        val httpClient = HttpClient.create(connectionProvider)
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
+            .responseTimeout(Duration.ofSeconds(10))
+
         return WebClient.builder()
+            .clientConnector(ReactorClientHttpConnector(httpClient))
             .codecs { configurer -> 
-                configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024) // 2MB
+                configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024) 
             }
             .build()
     }

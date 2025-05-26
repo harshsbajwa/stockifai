@@ -29,16 +29,16 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
-    // Spark Core and SQL
-    compileOnly("org.apache.spark:spark-core_2.12:$sparkVersion") {
+    // Spark Core and SQL - Use implementation for runtime
+    implementation("org.apache.spark:spark-core_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
-    compileOnly("org.apache.spark:spark-sql_2.12:$sparkVersion") {
+    implementation("org.apache.spark:spark-sql_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
 
     // Spark Structured Streaming with Kafka
-    compileOnly("org.apache.spark:spark-sql-kafka-0-10_2.12:$sparkVersion") {
+    implementation("org.apache.spark:spark-sql-kafka-0-10_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
 

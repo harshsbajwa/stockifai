@@ -1,16 +1,43 @@
-management:
-  health:
-    cassandra:
-      enabled: false
 spring:
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
   data:
     cassandra:
       contact-points: localhost
       port: 9042
       keyspace-name: test_keyspace
-      local-datacenter: dc1
+      local-datacenter: datacenter1
       schema-action: CREATE_IF_NOT_EXISTS
+      request:
+        timeout: 10s
+        consistency: LOCAL_ONE
+      connection:
+        connect-timeout: 10s
+        init-query-timeout: 10s
+
+management:
+  health:
+    cassandra:
+      enabled: true
+    influxdb:
+      enabled: false
+
 influxdb:
   url: http://localhost:8086
+  token: testtoken123!
+  org: testorg
+  bucket: testbucket
+
+logging:
+  level:
+    com.harshsbajwa.stockifai: DEBUG
+    org.springframework.data.cassandra: WARN
+    com.datastax.oss.driver: WARN
+    org.testcontainers: INFO
+    root: WARN
+
+# Disable scheduling in tests
+spring:
+  task:
+    scheduling:
+      enabled: false

@@ -7,6 +7,11 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: true
+    jsonData:
+      timeInterval: "5s"
+      queryTimeout: "60s"
+      httpMethod: "POST"
+    
   - name: InfluxDB
     type: influxdb
     access: proxy
@@ -15,6 +20,20 @@ datasources:
       version: Flux
       defaultBucket: "stockdata"
       organization: "stockifai"
+      timeInterval: "10s"
+      queryTimeout: "60s"
+    secureJsonData:
+      token: "${INFLUXDB_TOKEN}"
+    editable: true
+    
+  - name: InfluxDB-SQL
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    database: "stockdata"
+    jsonData:
+      version: InfluxQL
+      timeInterval: "10s"
     secureJsonData:
       token: "${INFLUXDB_TOKEN}"
     editable: true

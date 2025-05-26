@@ -42,7 +42,7 @@ fun main(args: Array<String>) {
     println("Stockifai Data Stream Collector has started successfully.")
 }
 
-// Enhanced Data Models
+// Data Models
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class StockQuoteData(
     val symbol: String,
@@ -100,7 +100,7 @@ data class FredSeriesResponse(
     val observations: List<FredObservation>? = null
 )
 
-// Enhanced Kafka message wrapper with metadata
+// Kafka message wrapper with metadata
 data class StockMessage(
     val messageType: String,
     val data: Any,
@@ -228,26 +228,26 @@ class DataCollectionService(
     }
 
     private fun collectStockQuote(symbol: String) {
-        val finnhubUrl = UriComponentsBuilder
-            .fromUriString("$finnhubBaseUrl/quote")
-            .queryParam("symbol", symbol)
-            .queryParam("token", finnhubApiKey)
-            .toUriString()
+    val finnhubUrl = UriComponentsBuilder
+        .fromUriString("$finnhubBaseUrl/quote")
+        .queryParam("symbol", symbol)
+        .queryParam("token", finnhubApiKey)
+        .toUriString()
 
-        webClient.get()
-            .uri(finnhubUrl)
-            .retrieve()
-            .bodyToMono(FinnhubQuote::class.java)
-            .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
-            .timeout(Duration.ofSeconds(10))
-            .doOnSuccess { finnhubQuote ->
-                processStockQuote(symbol, finnhubQuote)
-            }
-            .doOnError { error ->
-                handleStockDataError(symbol, error)
-            }
-            .onErrorResume { Mono.empty() }
-            .subscribe()
+    webClient.get()
+        .uri(finnhubUrl)
+        .retrieve()
+        .bodyToMono(FinnhubQuote::class.java)
+        .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
+        .timeout(Duration.ofSeconds(10))
+        .doOnSuccess { finnhubQuote ->
+            processStockQuote(symbol, finnhubQuote)
+        }
+        .doOnError { error ->
+            handleStockDataError(symbol, error)
+        }
+        .onErrorResume { Mono.empty() }
+        .block()
     }
 
     private fun processStockQuote(symbol: String, finnhubQuote: FinnhubQuote) {

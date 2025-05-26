@@ -2,14 +2,21 @@
 FROM bellsoft/liberica-runtime-container:jdk-all-21-slim-stream-musl AS builder
 WORKDIR /app
 
+# Copy entire project structure for multi-module build
 COPY gradlew .
-COPY gradle ./gradle
+COPY gradlew.bat .
+COPY gradle/ ./gradle/
 COPY build.gradle.kts .
 COPY settings.gradle.kts .
+COPY gradle.properties .
 
-# Corrected line:
-COPY api/build.gradle.kts ./api/build.gradle.kts
-COPY api/src ./api/src
+# Copy all module build files first (for better caching)
+COPY api/build.gradle.kts ./api/
+COPY spark/build.gradle.kts ./spark/
+COPY stream/build.gradle.kts ./stream/
+
+# Copy source code
+COPY api/src/ ./api/src/
 
 RUN chmod +x ./gradlew && ./gradlew :api:bootJar --no-daemon
 
@@ -17,8 +24,7 @@ RUN chmod +x ./gradlew && ./gradlew :api:bootJar --no-daemon
 FROM bellsoft/liberica-runtime-container:jre-21-slim-stream-musl
 WORKDIR /app
 
-ARG JAR_FILE_PATH=api/build/libs/*.jar
-COPY --from=builder /app/${JAR_FILE_PATH} app.jar
+COPY --from=builder /app/api/build/libs/api.jar app.jar
 
 EXPOSE 8080
 

@@ -42,8 +42,14 @@ management:
 
 app:
   stocks: ${MONITORED_STOCKS:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,NFLX,CRM,AMD}
-  finnhub:    
+  finnhub:
+    api:
+      key: ${FINNHUB_API_KEY:#{null}}
     baseUrl: https://finnhub.io/api/v1
+  fred:
+    api:
+      key: ${FRED_API_KEY:#{null}}
+    baseUrl: https://api.stlouisfed.org
 
 logging:
   level:

@@ -12,3 +12,6 @@ build
 
 # Ignore kotlin project files
 .kotlin/
+
+# Node Dependencies
+node_modules/

@@ -1,0 +1,120 @@
+{
+    "dashboard": {
+      "id": null,
+      "title": "Kafka Monitoring",
+      "tags": ["stockifai", "kafka", "messaging"],
+      "timezone": "browser",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Message Production Rate",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(kafka_producer_record_send_total[5m])",
+              "legendFormat": "{{topic}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "msgps"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+        },
+        {
+          "id": 2,
+          "title": "Message Consumption Rate",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(kafka_consumer_records_consumed_total[5m])",
+              "legendFormat": "{{topic}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "msgps"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+        },
+        {
+          "id": 3,
+          "title": "Topic Lag",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "kafka_consumer_lag_sum",
+              "legendFormat": "{{topic}} - {{partition}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "continuous-RdYlGr"
+              },
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+        },
+        {
+          "id": 4,
+          "title": "Producer Errors",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(kafka_producer_record_error_total[5m])",
+              "legendFormat": "{{topic}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "errps"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+        },
+        {
+          "id": 5,
+          "title": "Consumer Errors",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(kafka_consumer_fetch_manager_records_lag[5m])",
+              "legendFormat": "{{topic}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "errps"
+            }
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+        }
+      ],
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "refresh": "30s"
+    }
+}
