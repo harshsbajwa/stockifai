@@ -6,6 +6,7 @@ import com.harshsbajwa.stockifai.api.dto.StockMetricsResponse
 import com.harshsbajwa.stockifai.api.dto.TimeRange
 import com.influxdb.client.QueryApi
 import com.influxdb.query.FluxRecord
+import com.influxdb.query.FluxTable
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.Instant
@@ -30,7 +31,7 @@ class InfluxDBService(
             val fluxQuery = buildMetricsQuery(symbol, startTime, endTime, aggregation)
             val result = queryApi.query(fluxQuery, influxProperties.org)
             
-            val metrics = parseMetricsResults(result)
+            val metrics = parseMetricsResults(result.flatMap { it.records })
             
             StockMetricsResponse(
                 symbol = symbol,
@@ -61,7 +62,7 @@ class InfluxDBService(
             """.trimIndent()
             
             val result = queryApi.query(fluxQuery, influxProperties.org)
-            parseVolatilityResults(result)
+            parseVolatilityResults(result.flatMap { it.records })
         } catch (e: Exception) {
             logger.error("Error fetching market volatility from InfluxDB", e)
             emptyList()
@@ -81,8 +82,8 @@ class InfluxDBService(
             """.trimIndent()
             
             val result = queryApi.query(fluxQuery, influxProperties.org)
-            result.mapNotNull { record ->
-                val symbol = record.getValueByKey("symbol") as? String
+            result.flatMap { it.records }.mapNotNull { record ->
+                val symbol = record.values["symbol"] as? String
                 val changePercent = record.value as? Double
                 if (symbol != null && changePercent != null) {
                     symbol to changePercent
@@ -116,10 +117,10 @@ class InfluxDBService(
         return results.map { record ->
             MetricPoint(
                 timestamp = record.time ?: Instant.now(),
-                price = record.getValueByKey("price") as? Double,
-                volume = (record.getValueByKey("volume") as? Double)?.toLong(),
-                volatility = record.getValueByKey("volatility") as? Double,
-                riskScore = record.getValueByKey("risk_score") as? Double
+                price = record.values["price"] as? Double,
+                volume = (record.values["volume"] as? Double)?.toLong(),
+                volatility = record.values["volatility"] as? Double,
+                riskScore = record.values["risk_score"] as? Double
             )
         }.sortedBy { it.timestamp }
     }

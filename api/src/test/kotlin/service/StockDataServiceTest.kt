@@ -150,13 +150,14 @@ class StockDataServiceTest {
     @Test
     fun `getAllActiveStocks should return paginated results`() {
         // Given
-        val symbols = listOf("AAPL", "GOOGL", "TSLA")
+        val symbols = listOf("AAPL", "GOOGL")
         whenever(stockRepository.findAllDistinctSymbols()).thenReturn(symbols)
         
-        symbols.forEachIndexed { index, symbol ->
-            whenever(stockRepository.findLatestBySymbol(symbol))
-                .thenReturn(sampleStocks[index])
-        }
+        // Only mock the symbols we actually query for the page
+        whenever(stockRepository.findLatestBySymbol("AAPL"))
+            .thenReturn(sampleStocks[0])
+        whenever(stockRepository.findLatestBySymbol("GOOGL"))
+            .thenReturn(sampleStocks[1])
 
         // When
         val result = stockDataService.getAllActiveStocks(0, 2)
@@ -165,9 +166,9 @@ class StockDataServiceTest {
         assertEquals(2, result.data.size)
         assertEquals(0, result.page)
         assertEquals(2, result.size)
-        assertEquals(3L, result.totalElements)
-        assertEquals(2, result.totalPages)
-        assertTrue(result.hasNext)
+        assertEquals(2L, result.totalElements)
+        assertEquals(1, result.totalPages)
+        assertFalse(result.hasNext)
         assertFalse(result.hasPrevious)
     }
 

@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "StockCandle",
+  "namespace": "com.harshsbajwa.stockifai.avro.finnhub",
+  "fields": [
+    {"name": "symbol", "type": "string", "doc": "Stock symbol (e.g., AAPL, MSFT)"},
+    {"name": "open", "type": "double", "doc": "Opening price"},
+    {"name": "high", "type": "double", "doc": "Highest price during the period"},
+    {"name": "low", "type": "double", "doc": "Lowest price during the period"},
+    {"name": "close", "type": "double", "doc": "Closing price"},
+    {"name": "volume", "type": "long", "doc": "Trading volume"},
+    {"name": "timestamp", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Timestamp in milliseconds since epoch"}
+  ]
+}

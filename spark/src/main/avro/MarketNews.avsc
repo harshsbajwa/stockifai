@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "MarketNews",
+  "namespace": "com.harshsbajwa.stockifai.avro.finnhub",
+  "fields": [
+    {"name": "category", "type": "string", "doc": "News category"},
+    {"name": "datetime", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Published time in milliseconds since epoch"},
+    {"name": "headline", "type": "string", "doc": "News headline"},
+    {"name": "id", "type": "long", "doc": "News ID"},
+    {"name": "image", "type": ["null", "string"], "default": null, "doc": "URL of the news image, if available"},
+    {"name": "related", "type": ["null", "string"], "default": null, "doc": "Related symbol or information"},
+    {"name": "source", "type": "string", "doc": "News source"},
+    {"name": "summary", "type": "string", "doc": "News summary"},
+    {"name": "url", "type": "string", "doc": "URL to the full news article"}
+  ]
+}

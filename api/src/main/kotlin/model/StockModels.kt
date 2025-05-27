@@ -2,8 +2,10 @@ package com.harshsbajwa.stockifai.api.model
 
 import org.springframework.data.cassandra.core.mapping.Column
 import org.springframework.data.cassandra.core.mapping.PrimaryKey
+import org.springframework.data.cassandra.core.mapping.PrimaryKeyClass
+import org.springframework.data.cassandra.core.mapping.PrimaryKeyColumn
+import org.springframework.data.cassandra.core.cql.PrimaryKeyType
 import org.springframework.data.cassandra.core.mapping.Table
-import java.time.Instant
 
 @Table("processed_stocks")
 data class ProcessedStock(
@@ -45,19 +47,19 @@ data class ProcessedStock(
     )
 }
 
-@org.springframework.data.cassandra.core.mapping.PrimaryKeyClass
+@PrimaryKeyClass
 data class StockPrimaryKey(
-    @org.springframework.data.cassandra.core.mapping.PrimaryKeyColumn(
+    @PrimaryKeyColumn(
         name = "symbol",
         ordinal = 0,
-        type = org.springframework.data.cassandra.core.mapping.PrimaryKeyType.PARTITIONED
+        type = PrimaryKeyType.PARTITIONED
     )
     val symbol: String = "",
     
-    @org.springframework.data.cassandra.core.mapping.PrimaryKeyColumn(
+    @PrimaryKeyColumn(
         name = "timestamp",
         ordinal = 1,
-        type = org.springframework.data.cassandra.core.mapping.PrimaryKeyType.CLUSTERED
+        type = PrimaryKeyType.CLUSTERED
     )
     val timestamp: Long = 0L
 )
@@ -76,19 +78,19 @@ data class EconomicIndicatorEntity(
     constructor() : this(IndicatorPrimaryKey(), 0.0, null)
 }
 
-@org.springframework.data.cassandra.core.mapping.PrimaryKeyClass
+@PrimaryKeyClass
 data class IndicatorPrimaryKey(
-    @org.springframework.data.cassandra.core.mapping.PrimaryKeyColumn(
+    @PrimaryKeyColumn(
         name = "indicator",
         ordinal = 0,
-        type = org.springframework.data.cassandra.core.mapping.PrimaryKeyType.PARTITIONED
+        type = PrimaryKeyType.PARTITIONED
     )
     val indicator: String = "",
     
-    @org.springframework.data.cassandra.core.mapping.PrimaryKeyColumn(
+    @PrimaryKeyColumn(
         name = "timestamp", 
         ordinal = 1,
-        type = org.springframework.data.cassandra.core.mapping.PrimaryKeyType.CLUSTERED
+        type = PrimaryKeyType.CLUSTERED
     )
     val timestamp: Long = 0L
 )

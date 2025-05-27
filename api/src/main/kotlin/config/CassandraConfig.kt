@@ -8,12 +8,14 @@ import org.springframework.data.cassandra.config.SchemaAction
 import org.springframework.data.cassandra.core.CassandraOperations
 import org.springframework.data.cassandra.core.CassandraTemplate
 import org.springframework.data.cassandra.repository.config.EnableCassandraRepositories
+import com.datastax.oss.driver.api.core.CqlSession
+import java.net.InetSocketAddress
 
 @Configuration
 @EnableCassandraRepositories(basePackages = ["com.harshsbajwa.stockifai.api.repository"])
 class CassandraConfig : AbstractCassandraConfiguration() {
 
-    @Value("\${spring.data.cassandra.keyspace-name:stock_keyspace}")
+    @Value("\${spring.data.cassandra.keyspace-name:finrisk_reference_data}")
     private lateinit var keyspaceName: String
 
     @Value("\${spring.data.cassandra.contact-points:127.0.0.1}")
@@ -26,17 +28,22 @@ class CassandraConfig : AbstractCassandraConfiguration() {
     private lateinit var localDatacenter: String
 
     override fun getKeyspaceName(): String = keyspaceName
-
     override fun getContactPoints(): String = contactPoints
-
     override fun getPort(): Int = port
-
     override fun getLocalDataCenter(): String = localDatacenter
-
     override fun getSchemaAction(): SchemaAction = SchemaAction.CREATE_IF_NOT_EXISTS
 
     @Bean
-    fun cassandraOperations(): CassandraOperations {
-        return CassandraTemplate(sessionFactory().`object`)
+    fun cqlSession(): CqlSession {
+        return CqlSession.builder()
+            .addContactPoint(InetSocketAddress(contactPoints, port))
+            .withLocalDatacenter(localDatacenter)
+            .withKeyspace(keyspaceName)
+            .build()
+    }
+
+    @Bean
+    fun cassandraOperations(session: CqlSession): CassandraOperations {
+        return CassandraTemplate(session)
     }
 }

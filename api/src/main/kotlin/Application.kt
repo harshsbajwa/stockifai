@@ -1,13 +1,13 @@
-package com.harshsbajwa.stockifai.application
+package com.harshsbajwa.stockifai.api
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
 @SpringBootApplication
-class Application
+class AnalysisApiApplication
 
 fun main(args: Array<String>) {
-    println("Starting Backend API Server...")
-    runApplication<Application>(*args)
-    println("Backend API Server has started.")
+    println("Starting StockifAI Analysis API...")
+    runApplication<AnalysisApiApplication>(*args)
+    println("StockifAI Analysis API started successfully.")
 }

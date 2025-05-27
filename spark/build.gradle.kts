@@ -1,12 +1,13 @@
 plugins {
     kotlin("jvm")
     application
+    id("com.github.davidmc24.gradle.plugin.avro") version "1.9.1"
 }
 
 description = "Processes real-time data streams using Apache Spark Structured Streaming"
 
 application {
-    mainClass.set("com.harshsbajwa.stockifai.processing.Processing")
+    mainClass.set("com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt")
 }
 
 java {
@@ -22,6 +23,14 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     }
 }
 
+// Configure Avro code generation
+avro {
+    createSetters.set(false)
+    stringType.set("String")
+    outputCharacterEncoding.set("UTF-8")
+    enableDecimalLogicalType.set(true)
+}
+
 dependencies {
     val sparkVersion: String by project.extra
 
@@ -29,7 +38,10 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
-    // Spark Core and SQL - Use implementation for runtime
+    // Kotlin Spark API
+    implementation("org.jetbrains.kotlinx:kotlin-spark-api_3.5_2.12:1.4.1")
+
+    // Spark Core and SQL
     implementation("org.apache.spark:spark-core_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
@@ -41,6 +53,15 @@ dependencies {
     implementation("org.apache.spark:spark-sql-kafka-0-10_2.12:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
+    
+    // Avro support for Spark
+    implementation("org.apache.spark:spark-avro_2.12:$sparkVersion") {
+        exclude(group = "org.slf4j", module = "slf4j-log4j12")
+    }
+
+    // Avro dependencies
+    implementation("org.apache.avro:avro:1.11.3")
+    implementation("io.confluent:kafka-avro-serializer:7.5.0")
 
     // JSON processing
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.2")
@@ -48,8 +69,8 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.2")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.2")
 
-    // InfluxDB client
-    implementation("com.influxdb:influxdb-client-kotlin:7.3.0")
+    // InfluxDB client v3
+    implementation("com.influxdb:influxdb3-java:0.8.0")
 
     // Cassandra driver
     implementation("org.apache.cassandra:java-driver-core:4.19.0")
@@ -63,43 +84,19 @@ dependencies {
     // Configuration
     implementation("com.typesafe:config:1.4.3")
 
-    // Testing
+    // Testing dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
-    
-    // TestContainers
     testImplementation(platform("org.testcontainers:testcontainers-bom:1.20.4"))
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:kafka")
     testImplementation("org.testcontainers:cassandra")
     testImplementation("org.testcontainers:influxdb")
-    
-    // Kotlin test
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
-
-    // Spark testing - need full spark jars for tests
-    testImplementation("org.apache.spark:spark-core_2.12:$sparkVersion") {
-        exclude(group = "org.slf4j", module = "slf4j-log4j12")
-    }
-    testImplementation("org.apache.spark:spark-sql_2.12:$sparkVersion") {
-        exclude(group = "org.slf4j", module = "slf4j-log4j12")
-    }
-    testImplementation("org.apache.spark:spark-sql-kafka-0-10_2.12:$sparkVersion") {
-        exclude(group = "org.slf4j", module = "slf4j-log4j12")
-    }
-    
-    // Additional database clients for testing
-    testImplementation("com.influxdb:influxdb-client-kotlin:7.3.0")
-    testImplementation("org.apache.cassandra:java-driver-core:4.19.0")
-    
-    // Kafka clients for test data production
-    testImplementation("org.apache.kafka:kafka-clients:3.8.1")
 }
 
 tasks.test {
     useJUnitPlatform()
-    
-    // Increase memory for Spark tests
     minHeapSize = "1g"
     maxHeapSize = "4g"
     
@@ -112,25 +109,24 @@ tasks.test {
         "--add-opens", "java.base/java.io=ALL-UNNAMED",
         "--add-opens", "java.base/java.net=ALL-UNNAMED",
         "--add-opens", "java.base/sun.nio.fs=ALL-UNNAMED",
-        
-        // Spark specific JVM args
         "-Djava.security.manager=default",
-        "-Dio.netty.tryReflectionSetAccessible=true"
+        "-Dio.netty.tryReflectionSetAccessible=true",
+        "-Dsun.net.useExclusiveBind=false",
+        "-Djava.net.preferIPv4Stack=true"
     )
     
-    // System properties for tests
     systemProperties = mapOf(
         "spark.master" to "local[2]",
         "spark.app.name" to "SparkProcessorTest",
         "spark.sql.adaptive.enabled" to "true",
         "spark.sql.adaptive.coalescePartitions.enabled" to "true",
-        "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true"
+        "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
+        "java.net.useSystemProxies" to "true"
     )
     
-    // Parallel test execution
-    maxParallelForks = 1 // Keep at 1 for integration tests to avoid resource conflicts
+    timeout.set(Duration.ofMinutes(10))
+    maxParallelForks = 1
     
-    // Test logging
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
@@ -138,7 +134,6 @@ tasks.test {
     }
 }
 
-// Create a fat JAR for deployment
 tasks.jar {
     enabled = true
     archiveFileName.set("spark-processor.jar")
@@ -146,20 +141,18 @@ tasks.jar {
 
     manifest {
         attributes(
-            "Main-Class" to "com.harshsbajwa.stockifai.processing.Processing",
+            "Main-Class" to "com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt",
             "Implementation-Title" to project.name,
             "Implementation-Version" to project.version,
         )
     }
 
-    // Create fat JAR with all dependencies
     from(
         configurations.runtimeClasspath.get().map {
             if (it.isDirectory) it else zipTree(it)
         },
     ) {
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-        // Exclude signature files to avoid issues
         exclude("META-INF/*.SF")
         exclude("META-INF/*.DSA")
         exclude("META-INF/*.RSA")
@@ -169,35 +162,28 @@ tasks.jar {
     }
 }
 
-// Task to run the application locally with environment variables
 tasks.register<JavaExec>("runLocal") {
     dependsOn("classes")
     classpath = sourceSets.main.get().runtimeClasspath
-    mainClass.set("com.harshsbajwa.stockifai.processing.Processing")
+    mainClass.set("com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt")
 
-    // Set local Spark configuration
     systemProperties = mapOf(
         "spark.master" to "local[*]",
-        "spark.app.name" to "StockifAI-StructuredStreaming-Local",
+        "spark.app.name" to "StockifAI-RiskCalculationEngine-Local",
         "spark.sql.adaptive.enabled" to "true",
         "spark.sql.adaptive.coalescePartitions.enabled" to "true",
         "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
     )
 
-    // Set environment variables for local testing
-    environment =
-        mapOf(
-            // Kafka Configuration
-            "KAFKA_BOOTSTRAP_SERVERS" to "localhost:9092",
-            "KAFKA_TOPICS" to "stock_prices,economic_indicators",
-            // InfluxDB Configuration
-            "INFLUXDB_URL" to "http://localhost:8086",
-            "INFLUXDB_TOKEN" to "your-influxdb-token",
-            "INFLUXDB_ORG" to "stockifai",
-            "INFLUXDB_BUCKET" to "stocks",
-            // Cassandra Configuration
-            "CASSANDRA_HOST" to "localhost",
-            "CASSANDRA_PORT" to "9042",
-            "CASSANDRA_KEYSPACE" to "stockifai",
-        )
+    environment = mapOf(
+        "KAFKA_BOOTSTRAP_SERVERS" to "localhost:9092",
+        "SCHEMA_REGISTRY_URL" to "http://localhost:8081",
+        "INFLUXDB_URL" to "http://localhost:8086",
+        "INFLUXDB_TOKEN" to "your-influxdb-token",
+        "INFLUXDB_ORG" to "stockifai",
+        "INFLUXDB_BUCKET" to "stocks",
+        "CASSANDRA_HOST" to "localhost",
+        "CASSANDRA_PORT" to "9042",
+        "CASSANDRA_KEYSPACE" to "finrisk_reference_data"
+    )
 }

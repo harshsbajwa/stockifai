@@ -2,13 +2,21 @@
 FROM bellsoft/liberica-runtime-container:jdk-all-21-slim-stream-musl AS builder
 WORKDIR /app
 
+# Copy entire project structure for multi-module build
 COPY gradlew .
-COPY gradle ./gradle
+COPY gradlew.bat .
+COPY gradle/ ./gradle/
 COPY build.gradle.kts .
 COPY settings.gradle.kts .
+COPY gradle.properties .
 
-COPY spark/build.gradle.kts ./spark/build.gradle.kts
-COPY spark/src ./spark/src
+# Copy all module build files first (for better caching)
+COPY api/build.gradle.kts ./api/
+COPY spark/build.gradle.kts ./spark/
+COPY stream/build.gradle.kts ./stream/
+
+# Copy Avro schemas and source code
+COPY spark/src/ ./spark/src/
 
 RUN chmod +x ./gradlew && ./gradlew :spark:jar --no-daemon
 
@@ -22,7 +30,7 @@ ARG HADOOP_VERSION=3
 ENV SPARK_HOME=/opt/spark
 ENV PATH=$SPARK_HOME/bin:$SPARK_HOME/sbin:$PATH
 
-# Install necessary tools download/extract Spark
+# Install necessary tools and download/extract Spark
 RUN apk update && apk add --no-cache bash curl tar wget \
   && wget https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -O /tmp/spark.tgz \
   && tar -xzf /tmp/spark.tgz -C /opt \
@@ -31,12 +39,13 @@ RUN apk update && apk add --no-cache bash curl tar wget \
 
 COPY --from=builder /app/spark/build/libs/spark-processor.jar ./app.jar
 
-# Create basic configuration files
+# Create Spark configuration files
 RUN echo "spark.serializer=org.apache.spark.serializer.KryoSerializer" > $SPARK_HOME/conf/spark-defaults.conf && \
   echo "spark.sql.adaptive.enabled=true" >> $SPARK_HOME/conf/spark-defaults.conf && \
-  echo "spark.sql.adaptive.coalescePartitions.enabled=true" >> $SPARK_HOME/conf/spark-defaults.conf
+  echo "spark.sql.adaptive.coalescePartitions.enabled=true" >> $SPARK_HOME/conf/spark-defaults.conf && \
+  echo "spark.sql.streaming.forceDeleteTempCheckpointLocation=true" >> $SPARK_HOME/conf/spark-defaults.conf
 
-# Create basic log4j2 configuration
+# Create log4j2 configuration
 RUN echo "rootLogger.level=INFO" > $SPARK_HOME/conf/log4j2.properties && \
   echo "rootLogger.appenderRef.stdout.ref=STDOUT" >> $SPARK_HOME/conf/log4j2.properties && \
   echo "appender.console.type=Console" >> $SPARK_HOME/conf/log4j2.properties && \
@@ -44,4 +53,17 @@ RUN echo "rootLogger.level=INFO" > $SPARK_HOME/conf/log4j2.properties && \
   echo "appender.console.layout.type=PatternLayout" >> $SPARK_HOME/conf/log4j2.properties && \
   echo "appender.console.layout.pattern=%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n" >> $SPARK_HOME/conf/log4j2.properties
 
+# Environment variables for the application
+ENV KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+ENV SCHEMA_REGISTRY_URL=http://schema-registry:8081
+ENV INFLUXDB_URL=http://influxdb:8086
+ENV INFLUXDB_TOKEN=stockifai-token
+ENV INFLUXDB_DATABASE=stockifai
+ENV CASSANDRA_HOST=cassandra
+ENV CASSANDRA_PORT=9042
+ENV CASSANDRA_KEYSPACE=finrisk_reference_data
+
 WORKDIR /opt/spark-app
+
+# Entry point to run the Spark application
+ENTRYPOINT ["java", "-jar", "/opt/spark-app/app.jar"]

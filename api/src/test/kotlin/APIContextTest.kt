@@ -2,6 +2,7 @@ package com.harshsbajwa.stockifai.api
 
 import com.harshsbajwa.stockifai.application.Application
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -18,6 +19,7 @@ import java.time.Duration
 @Testcontainers
 @SpringBootTest(classes = [Application::class])
 @ActiveProfiles("test")
+@EnabledIfEnvironmentVariable(named = "DOCKER_AVAILABLE", matches = "true")
 class APIContextTest {
     companion object {
         @Container

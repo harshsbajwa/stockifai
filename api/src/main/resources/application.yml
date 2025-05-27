@@ -1,15 +1,22 @@
+server:
+  port: 8080
+  shutdown: graceful
+
 spring:
   application:
-    name: stockifai-api
+    name: stockifai-analysis-api
   data:
     cassandra:
-      contact-points: 127.0.0.1
-      port: 9042
-      local-datacenter: dc1
-      keyspace-name: ${SPRING_DATA_CASSANDRA_KEYSPACE_NAME:stock_keyspace}
+      contact-points: ${CASSANDRA_HOST:127.0.0.1}
+      port: ${CASSANDRA_PORT:9042}
+      local-datacenter: ${CASSANDRA_DATACENTER:datacenter1}
+      keyspace-name: ${CASSANDRA_KEYSPACE:finrisk_reference_data}
       schema-action: CREATE_IF_NOT_EXISTS
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:https://your-auth-server.com/auth/realms/your-realm}
 
 management:
   endpoints:
@@ -23,3 +30,36 @@ management:
     export:
       prometheus:
         enabled: true
+
+influxdb:
+  url: ${INFLUXDB_URL:http://localhost:8086}
+  token: ${INFLUXDB_TOKEN:your-token}
+  database: ${INFLUXDB_DATABASE:stockifai}
+
+logging:
+  level:
+    com.harshsbajwa.stockifai: INFO
+    org.springframework.security: DEBUG
+    com.datastax.oss.driver: WARN
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  data:
+    cassandra:
+      contact-points: cassandra
+      port: 9042
+      local-datacenter: dc1
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8080/auth/realms/stockifai
+
+influxdb:
+  url: http://influxdb:8086
+  token: ${INFLUXDB_TOKEN}
+  database: stockifai
+  

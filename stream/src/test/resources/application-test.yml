@@ -1,41 +1,35 @@
 spring:
   kafka:
-    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
+    bootstrap-servers: localhost:9092
     producer:
+      bootstrap-servers: localhost:9092
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      acks: all
-      retries: 3
-      properties:
-        metadata.max.age.ms: 1000
     consumer:
+      bootstrap-servers: localhost:9092
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      auto-offset-reset: earliest
-      enable-auto-commit: false
-      properties:
-        metadata.max.age.ms: 1000
-  task:
-    scheduling:
-      enabled: false
+      group-id: test-group
+
+app:
+  collection:
+    enabled: false
+  market:
+    hours:
+      only: false
+  stocks: AAPL,GOOGL
+  finnhub:
+    api:
+      key: test-key
+    baseUrl: http://localhost:8089
+  fred:
+    api:
+      key: test-key
+    baseUrl: http://localhost:8089
 
 logging:
   level:
     com.harshsbajwa.stockifai: DEBUG
+    org.springframework.kafka: WARN
     org.apache.kafka: WARN
-    org.testcontainers: INFO
-    reactor.netty.http.client: DEBUG
-
-app:
-  stocks: TESTAAPL # Default for tests
-  # Base URLs will be overridden by DynamicPropertySource to use MockWebServer
-  alphavantage:
-    api:
-      key: TEST_AV_KEY
-    baseUrl: http://localhost:12345 # Dummy
-  fred:
-    api:
-      key: TEST_FRED_KEY
-    baseUrl: http://localhost:12345 # Dummy
-  yahoo:
-    baseUrl: http://localhost:12345 # Dummy
+    root: WARN

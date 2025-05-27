@@ -3,6 +3,7 @@ package com.harshsbajwa.stockifai.api.service
 import com.harshsbajwa.stockifai.api.config.InfluxProperties
 import com.influxdb.client.QueryApi
 import com.influxdb.query.FluxRecord
+import com.influxdb.query.FluxTable
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
@@ -25,9 +26,6 @@ class InfluxDBServiceTest {
     @InjectMocks
     private lateinit var influxDBService: InfluxDBService
 
-    @Mock
-    private lateinit var fluxRecord: FluxRecord
-
     @BeforeEach
     fun setUp() {
         whenever(influxProperties.bucket).thenReturn("testbucket")
@@ -38,13 +36,23 @@ class InfluxDBServiceTest {
     fun `getStockMetrics should return metrics when data exists`() {
         // Given
         val now = Instant.now()
-        whenever(fluxRecord.time).thenReturn(now)
-        whenever(fluxRecord.getValueByKey("price")).thenReturn(150.25)
-        whenever(fluxRecord.getValueByKey("volume")).thenReturn(1000000.0)
-        whenever(fluxRecord.getValueByKey("volatility")).thenReturn(0.25)
-        whenever(fluxRecord.getValueByKey("risk_score")).thenReturn(35.5)
+        val mockRecord = mock<FluxRecord>()
+        whenever(mockRecord.time).thenReturn(now)
+        
+        // Mock the values map that FluxRecord uses
+        val valuesMap = mapOf(
+            "price" to 150.25,
+            "volume" to 1000000.0,
+            "volatility" to 0.25,
+            "risk_score" to 35.5
+        )
+        whenever(mockRecord.values).thenReturn(valuesMap)
 
-        val mockResults = listOf(fluxRecord)
+        // Mock a FluxTable and set its records
+        val mockTable = mock<FluxTable>()
+        whenever(mockTable.records).thenReturn(listOf(mockRecord))
+
+        val mockResults = listOf(mockTable)
         whenever(queryApi.query(any<String>(), eq("testorg"))).thenReturn(mockResults)
 
         // When
@@ -55,14 +63,14 @@ class InfluxDBServiceTest {
         assertEquals("AAPL", result.symbol)
         assertEquals("5m", result.aggregation)
         assertEquals(1, result.metrics.size)
-        
+
         val metric = result.metrics[0]
         assertEquals(150.25, metric.price)
         assertEquals(1000000L, metric.volume)
         assertEquals(0.25, metric.volatility)
         assertEquals(35.5, metric.riskScore)
         assertEquals(now, metric.timestamp)
-        
+
         verify(queryApi).query(any<String>(), eq("testorg"))
     }
 
@@ -84,10 +92,15 @@ class InfluxDBServiceTest {
     fun `getMarketVolatility should return volatility data`() {
         // Given
         val now = Instant.now()
-        whenever(fluxRecord.time).thenReturn(now)
-        whenever(fluxRecord.value).thenReturn(0.35)
+        val mockRecord = mock<FluxRecord>()
+        whenever(mockRecord.time).thenReturn(now)
+        whenever(mockRecord.value).thenReturn(0.35)
 
-        val mockResults = listOf(fluxRecord)
+        // Mock a FluxTable and set its records
+        val mockTable = mock<FluxTable>()
+        whenever(mockTable.records).thenReturn(listOf(mockRecord))
+
+        val mockResults = listOf(mockTable)
         whenever(queryApi.query(any<String>(), eq("testorg"))).thenReturn(mockResults)
 
         // When
@@ -105,14 +118,21 @@ class InfluxDBServiceTest {
     @Test
     fun `getTopPerformers should return top performing stocks`() {
         // Given
-        whenever(fluxRecord.getValueByKey("symbol")).thenReturn("AAPL")
-        whenever(fluxRecord.value).thenReturn(5.25)
+        val mockRecord1 = mock<FluxRecord>()
+        val valuesMap1 = mapOf("symbol" to "AAPL")
+        whenever(mockRecord1.values).thenReturn(valuesMap1)
+        whenever(mockRecord1.value).thenReturn(5.25)
 
         val mockRecord2 = mock<FluxRecord>()
-        whenever(mockRecord2.getValueByKey("symbol")).thenReturn("GOOGL")
+        val valuesMap2 = mapOf("symbol" to "GOOGL")
+        whenever(mockRecord2.values).thenReturn(valuesMap2)
         whenever(mockRecord2.value).thenReturn(3.15)
 
-        val mockResults = listOf(fluxRecord, mockRecord2)
+        // Mock a FluxTable and set its records
+        val mockTable = mock<FluxTable>()
+        whenever(mockTable.records).thenReturn(listOf(mockRecord1, mockRecord2))
+
+        val mockResults = listOf(mockTable)
         whenever(queryApi.query(any<String>(), eq("testorg"))).thenReturn(mockResults)
 
         // When
@@ -127,10 +147,16 @@ class InfluxDBServiceTest {
     @Test
     fun `getTopPerformers should handle null values gracefully`() {
         // Given
-        whenever(fluxRecord.getValueByKey("symbol")).thenReturn(null)
-        whenever(fluxRecord.value).thenReturn(5.25)
+        val mockRecord = mock<FluxRecord>()
+        val valuesMap = mapOf("symbol" to null) // Null symbol
+        whenever(mockRecord.values).thenReturn(valuesMap)
+        whenever(mockRecord.value).thenReturn(5.25)
 
-        val mockResults = listOf(fluxRecord)
+        // Mock a FluxTable and set its records
+        val mockTable = mock<FluxTable>()
+        whenever(mockTable.records).thenReturn(listOf(mockRecord))
+
+        val mockResults = listOf(mockTable)
         whenever(queryApi.query(any<String>(), eq("testorg"))).thenReturn(mockResults)
 
         // When

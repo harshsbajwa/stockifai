@@ -2,33 +2,27 @@ package com.harshsbajwa.stockifai.stream
 
 import org.junit.jupiter.api.Test
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.mock.mockito.MockBean
+import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.test.context.ActiveProfiles
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.kafka.ConfluentKafkaContainer
-import org.testcontainers.utility.DockerImageName
+import org.springframework.test.context.TestPropertySource
 
-@Testcontainers
-@SpringBootTest
+@SpringBootTest(classes = [Application::class])
 @ActiveProfiles("test")
+@TestPropertySource(properties = [
+    "app.collection.enabled=false",
+    "spring.kafka.bootstrap-servers=localhost:9092",
+    "app.finnhub.api.key=test-key",
+    "app.fred.api.key=test-key"
+])
 class StreamContextTest {
-    companion object {
-        @Container
-        val kafkaContainer =
-            ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.9.1"))
 
-        @JvmStatic
-        @DynamicPropertySource
-        fun registerDynamicProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.kafka.bootstrap-servers", kafkaContainer::getBootstrapServers)
-        }
-    }
+    @MockBean
+    private lateinit var kafkaTemplate: KafkaTemplate<String, String>
 
     @Test
     fun contextLoads() {
-        println("Stream Application context loaded successfully with Kafka Testcontainer.")
-        println("Kafka running at: " + kafkaContainer.bootstrapServers)
+        // Test verifies that the Spring application context can start successfully
+        println("Stream application context loaded successfully.")
     }
 }

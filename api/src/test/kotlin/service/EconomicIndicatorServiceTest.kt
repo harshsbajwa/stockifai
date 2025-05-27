@@ -87,12 +87,15 @@ class EconomicIndicatorServiceTest {
         val indicators = listOf("VIXCLS", "FEDFUNDS", "DGS10")
         whenever(indicatorRepository.findAllDistinctIndicators()).thenReturn(indicators)
         
-        indicators.forEach { indicator ->
-            whenever(indicatorRepository.findLatestByIndicator(indicator))
-                .thenReturn(sampleIndicator.copy(
-                    primaryKey = IndicatorPrimaryKey(indicator, Instant.now().toEpochMilli())
-                ))
-        }
+        // Only mock the indicators we actually query for
+        whenever(indicatorRepository.findLatestByIndicator("VIXCLS"))
+            .thenReturn(sampleIndicator.copy(
+                primaryKey = IndicatorPrimaryKey("VIXCLS", Instant.now().toEpochMilli())
+            ))
+        whenever(indicatorRepository.findLatestByIndicator("FEDFUNDS"))
+            .thenReturn(sampleIndicator.copy(
+                primaryKey = IndicatorPrimaryKey("FEDFUNDS", Instant.now().toEpochMilli())
+            ))
 
         // When
         val result = economicIndicatorService.getAllLatestIndicators(0, 2)

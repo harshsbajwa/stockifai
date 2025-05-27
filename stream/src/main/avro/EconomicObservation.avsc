@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "EconomicObservation",
+  "namespace": "com.harshsbajwa.stockifai.avro.fred",
+  "fields": [
+    {"name": "seriesId", "type": "string", "doc": "FRED series identifier (e.g., VIXCLS, SP500)"},
+    {"name": "observationDate", "type": "string", "doc": "Date of the observation in YYYY-MM-DD format"},
+    {"name": "value", "type": "string", "doc": "Observed value as string (may be '.' for missing data)"},
+    {"name": "realTimeStart", "type": "string", "doc": "Real-time period start date"},
+    {"name": "realTimeEnd", "type": "string", "doc": "Real-time period end date"}
+  ]
+}

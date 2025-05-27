@@ -9,9 +9,10 @@ spring:
     name: stockifai-stream
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    schema-registry-url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
       acks: all
       retries: 3
       batch-size: 16384
@@ -24,6 +25,7 @@ spring:
         retry.backoff.ms: 100
         request.timeout.ms: 30000
         delivery.timeout.ms: 120000
+        schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
 
@@ -41,7 +43,7 @@ management:
         enabled: true
 
 app:
-  stocks: ${MONITORED_STOCKS:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,NFLX,CRM,AMD}
+  stocks: ${MONITORED_STOCKS:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,SPY,QQQ}
   finnhub:
     api:
       key: ${FINNHUB_API_KEY:#{null}}
@@ -50,12 +52,15 @@ app:
     api:
       key: ${FRED_API_KEY:#{null}}
     baseUrl: https://api.stlouisfed.org
+  collection:
+    enabled: true
 
 logging:
   level:
     com.harshsbajwa.stockifai: INFO
     org.apache.kafka: WARN
     reactor.netty: WARN
+    io.confluent: WARN
 
 ---
 spring:
@@ -64,3 +69,4 @@ spring:
       on-profile: docker
   kafka:
     bootstrap-servers: kafka:9093
+    schema-registry-url: http://schema-registry:8081
