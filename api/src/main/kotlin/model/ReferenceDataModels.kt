@@ -5,6 +5,7 @@ import org.springframework.data.cassandra.core.mapping.PrimaryKey
 import org.springframework.data.cassandra.core.mapping.Table
 import java.time.Instant
 
+
 @Table("instrument_metadata")
 data class InstrumentMetadata(
     @PrimaryKey val symbol: String,

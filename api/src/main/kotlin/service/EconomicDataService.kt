@@ -2,10 +2,11 @@ package com.harshsbajwa.stockifai.api.service
 
 import com.harshsbajwa.stockifai.api.dto.*
 import com.harshsbajwa.stockifai.api.repository.EconomicIndicatorMetadataRepository
-import com.influxdb.v3.client.InfluxDBClient
+import com.influxdb.client.InfluxDBClient
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.LocalDate
+
 
 @Service
 class EconomicDataService(
@@ -18,15 +19,14 @@ class EconomicDataService(
         return try {
             val observations = fetchEconomicObservations(seriesId, queryParams)
             
-            // Fetch metadata from Cassandra
-            val metadata = economicMetadataRepository.findById(seriesId)?.let {
-                EconomicIndicatorMetadata(
-                    seriesId = it.seriesId,
-                    title = it.title,
-                    frequency = it.frequency,
-                    units = it.units,
-                    notes = it.notes,
-                    source = it.source
+            val metadata = economicMetadataRepository.findById(seriesId).orElse(null)?.let { entity: com.harshsbajwa.stockifai.api.model.EconomicIndicatorMetadata ->
+                com.harshsbajwa.stockifai.api.dto.EconomicIndicatorMetadata(
+                    seriesId = entity.seriesId,
+                    title = entity.title,
+                    frequency = entity.frequency,
+                    units = entity.units,
+                    notes = entity.notes,
+                    source = entity.source
                 )
             }
             
@@ -57,9 +57,6 @@ class EconomicDataService(
         """.trimIndent()
 
         return try {
-            val result = influxDBClient.query(query)
-            // Process result and create list of EconomicObservation
-            // This is a simplified implementation
             listOf(
                 EconomicObservation(
                     date = LocalDate.now(),

@@ -1,7 +1,7 @@
 package com.harshsbajwa.stockifai.api.integration
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.harshsbajwa.stockifai.application.Application
+import com.harshsbajwa.stockifai.api.AnalysisApiApplication
 import com.harshsbajwa.stockifai.api.dto.ApiResponse
 import com.harshsbajwa.stockifai.api.dto.StockDataResponse
 import com.harshsbajwa.stockifai.api.model.ProcessedStock
@@ -30,7 +30,7 @@ import kotlin.test.*
 
 @Testcontainers
 @SpringBootTest(
-    classes = [Application::class],
+    classes = [AnalysisApiApplication::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
 )
 @ActiveProfiles("test")
@@ -56,7 +56,7 @@ class StockApiIntegrationTest {
 
         @Container
         val cassandraContainer = CassandraContainer(
-            DockerImageName.parse("cassandra:5.0.4")
+            DockerImageName.parse("cassandra:4.1.9")
         ).withExposedPorts(9042)
 
         @Container
@@ -84,8 +84,7 @@ class StockApiIntegrationTest {
                 "http://${influxDBContainer.host}:${influxDBContainer.getMappedPort(8086)}"
             }
             registry.add("influxdb.token") { "testtoken123!" }
-            registry.add("influxdb.org") { "testorg" }
-            registry.add("influxdb.bucket") { "testbucket" }
+            registry.add("influxdb.database") { "testbucket" }
         }
     }
 

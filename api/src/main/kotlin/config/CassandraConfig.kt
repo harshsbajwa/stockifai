@@ -5,45 +5,42 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.data.cassandra.config.AbstractCassandraConfiguration
 import org.springframework.data.cassandra.config.SchemaAction
-import org.springframework.data.cassandra.core.CassandraOperations
-import org.springframework.data.cassandra.core.CassandraTemplate
+import org.springframework.data.cassandra.config.SessionBuilderConfigurer
 import org.springframework.data.cassandra.repository.config.EnableCassandraRepositories
-import com.datastax.oss.driver.api.core.CqlSession
-import java.net.InetSocketAddress
-
-@Configuration
-@EnableCassandraRepositories(basePackages = ["com.harshsbajwa.stockifai.api.repository"])
+import com.datastax.oss.driver.api.core.CqlSessionBuilder
+import java.nio.file.Paths
+ 
 class CassandraConfig : AbstractCassandraConfiguration() {
 
     @Value("\${spring.data.cassandra.keyspace-name:finrisk_reference_data}")
-    private lateinit var keyspaceName: String
+    private lateinit var keyspaceNameValue: String
+     
+    @Value("\${astra.db.secure-connect-bundle-path}")
+    private lateinit var cloudSecureConnectBundlePath: String
+ 
+    @Value("\${astra.db.client-id}")
+    private lateinit var usernameValue: String
 
-    @Value("\${spring.data.cassandra.contact-points:127.0.0.1}")
-    private lateinit var contactPoints: String
-
-    @Value("\${spring.data.cassandra.port:9042}")
-    private var port: Int = 9042
-
-    @Value("\${spring.data.cassandra.local-datacenter:datacenter1}")
-    private lateinit var localDatacenter: String
-
-    override fun getKeyspaceName(): String = keyspaceName
-    override fun getContactPoints(): String = contactPoints
-    override fun getPort(): Int = port
-    override fun getLocalDataCenter(): String = localDatacenter
-    override fun getSchemaAction(): SchemaAction = SchemaAction.CREATE_IF_NOT_EXISTS
-
+    @Value("\${astra.db.client-secret}")
+    private lateinit var passwordValue: String
+ 
+    @Value("\${astra.db.local-datacenter:#{null}}")
+    private var localDatacenter: String? = null
+ 
+    override fun getKeyspaceName(): String = keyspaceNameValue
+    override fun getSchemaAction(): SchemaAction = SchemaAction.NONE
+ 
     @Bean
-    fun cqlSession(): CqlSession {
-        return CqlSession.builder()
-            .addContactPoint(InetSocketAddress(contactPoints, port))
-            .withLocalDatacenter(localDatacenter)
-            .withKeyspace(keyspaceName)
-            .build()
-    }
-
-    @Bean
-    fun cassandraOperations(session: CqlSession): CassandraOperations {
-        return CassandraTemplate(session)
+    fun sessionBuilderConfigurer(): SessionBuilderConfigurer {
+        return SessionBuilderConfigurer { sessionBuilder ->
+            sessionBuilder
+                .withCloudSecureConnectBundle(Paths.get(cloudSecureConnectBundlePath))
+                .withAuthCredentials(usernameValue, passwordValue)
+                .also { builder ->
+                    localDatacenter?.let { dc ->
+                        if (dc.isNotBlank()) builder.withLocalDatacenter(dc)
+                    }
+                }
+        }
     }
 }

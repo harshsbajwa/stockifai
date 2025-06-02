@@ -69,7 +69,6 @@ subprojects {
                 )
     }
 
-    // Set extra properties for subprojects
     extra["springBootVersion"] = springBootVersion
     extra["sparkVersion"] = sparkVersion
     extra["kafkaVersion"] = kafkaVersion

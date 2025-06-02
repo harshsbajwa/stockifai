@@ -21,60 +21,57 @@ class StreamServiceLogicTest {
     }
 
     @Test
-    fun `StockQuoteData serialization and deserialization works correctly`() {
+    fun `FinnhubQuote serialization and deserialization works correctly`() {
         // Given
-        val stockQuote = StockQuoteData(
-            symbol = "AAPL",
-            regularMarketPrice = 150.25,
-            regularMarketVolume = 1000000L,
-            regularMarketChangePercent = 1.69,
-            regularMarketDayHigh = 152.0,
-            regularMarketDayLow = 148.0,
-            regularMarketOpen = 149.0,
+        val finnhubQuote = FinnhubQuote(
+            currentPrice = 150.25,
+            highPriceOfDay = 152.0,
+            lowPriceOfDay = 148.0,
+            openPriceOfDay = 149.0,
             previousClosePrice = 147.75,
             timestamp = 1640995200L,
-            marketState = "REGULAR"
+            change = 2.5,
+            percentChange = 1.69
         )
 
         // When
-        val json = objectMapper.writeValueAsString(stockQuote)
-        val deserialized = objectMapper.readValue(json, StockQuoteData::class.java)
+        val json = objectMapper.writeValueAsString(finnhubQuote)
+        val deserialized = objectMapper.readValue(json, FinnhubQuote::class.java)
 
         // Then
         assertNotNull(json)
-        assertTrue(json.contains("AAPL"))
         assertTrue(json.contains("150.25"))
+        assertTrue(json.contains("1.69"))
         
-        assertEquals(stockQuote.symbol, deserialized.symbol)
-        assertEquals(stockQuote.regularMarketPrice, deserialized.regularMarketPrice)
-        assertEquals(stockQuote.regularMarketVolume, deserialized.regularMarketVolume)
-        assertEquals(stockQuote.timestamp, deserialized.timestamp)
+        assertEquals(finnhubQuote.currentPrice, deserialized.currentPrice)
+        assertEquals(finnhubQuote.highPriceOfDay, deserialized.highPriceOfDay)
+        assertEquals(finnhubQuote.percentChange, deserialized.percentChange)
+        assertEquals(finnhubQuote.timestamp, deserialized.timestamp)
     }
 
     @Test
-    fun `EconomicIndicator serialization works correctly`() {
+    fun `FredObservation serialization works correctly`() {
         // Given
-        val indicator = EconomicIndicator(
-            indicator = "VIXCLS",
-            value = 18.75,
+        val observation = FredObservation(
             date = "2023-12-31",
-            source = "FRED"
+            value = "18.75",
+            realtimeStart = "2023-12-31",
+            realtimeEnd = "2023-12-31"
         )
 
         // When
-        val json = objectMapper.writeValueAsString(indicator)
-        val deserialized = objectMapper.readValue(json, EconomicIndicator::class.java)
+        val json = objectMapper.writeValueAsString(observation)
+        val deserialized = objectMapper.readValue(json, FredObservation::class.java)
 
         // Then
         assertNotNull(json)
-        assertTrue(json.contains("VIXCLS"))
+        assertTrue(json.contains("2023-12-31"))
         assertTrue(json.contains("18.75"))
-        assertTrue(json.contains("FRED"))
         
-        assertEquals(indicator.indicator, deserialized.indicator)
-        assertEquals(indicator.value, deserialized.value)
-        assertEquals(indicator.date, deserialized.date)
-        assertEquals(indicator.source, deserialized.source)
+        assertEquals(observation.date, deserialized.date)
+        assertEquals(observation.value, deserialized.value)
+        assertEquals(observation.realtimeStart, deserialized.realtimeStart)
+        assertEquals(observation.realtimeEnd, deserialized.realtimeEnd)
     }
 
     @Test
@@ -138,31 +135,32 @@ class StreamServiceLogicTest {
     }
 
     @Test
-    fun `StockMessage wrapper serialization works correctly`() {
+    fun `FinnhubNews deserialization works correctly`() {
         // Given
-        val stockQuote = StockQuoteData(
-            symbol = "TSLA",
-            regularMarketPrice = 250.50,
-            regularMarketVolume = 2000000L,
-            regularMarketChangePercent = 2.5,
-            regularMarketDayHigh = 255.0,
-            regularMarketDayLow = 245.0,
-            regularMarketOpen = 248.0,
-            previousClosePrice = 244.5,
-            timestamp = System.currentTimeMillis() / 1000
-        )
-
-        val message = StockMessage("stock_quote", stockQuote)
+        val json = """
+            {
+                "category": "general",
+                "datetime": 1640995200000,
+                "headline": "Test News Headline",
+                "id": 12345,
+                "image": "https://example.com/image.jpg",
+                "related": "AAPL",
+                "source": "Reuters",
+                "summary": "Test news summary",
+                "url": "https://example.com/news"
+            }
+        """.trimIndent()
 
         // When
-        val json = objectMapper.writeValueAsString(message)
+        val news = objectMapper.readValue(json, FinnhubNews::class.java)
 
         // Then
-        assertNotNull(json)
-        assertTrue(json.contains("stock_quote"))
-        assertTrue(json.contains("TSLA"))
-        assertTrue(json.contains("stockifai-stream"))
-        assertTrue(json.contains("1.0")) // version
+        assertEquals("general", news.category)
+        assertEquals(1640995200000L, news.datetime)
+        assertEquals("Test News Headline", news.headline)
+        assertEquals(12345L, news.id)
+        assertEquals("AAPL", news.related)
+        assertEquals("Reuters", news.source)
     }
 
     @Test
@@ -173,11 +171,15 @@ class StreamServiceLogicTest {
                 "observations": [
                     {
                         "date": "2023-12-31",
-                        "value": "18.75"
+                        "value": "18.75",
+                        "realtime_start": "2023-12-31",
+                        "realtime_end": "2023-12-31"
                     },
                     {
                         "date": "2023-12-30",
-                        "value": "19.25"
+                        "value": "19.25",
+                        "realtime_start": "2023-12-30",
+                        "realtime_end": "2023-12-30"
                     }
                 ]
             }

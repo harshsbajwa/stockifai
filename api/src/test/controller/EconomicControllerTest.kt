@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 import java.time.Instant
+import java.time.ZoneId
 
 @WebMvcTest(EconomicController::class)
 @ActiveProfiles("test")
@@ -31,13 +32,26 @@ class EconomicControllerTest {
     @BeforeEach
     fun setUp() {
         sampleIndicatorResponse = EconomicIndicatorResponse(
-            indicator = "VIXCLS",
-            value = 18.75,
-            country = "US",
-            timestamp = Instant.now(),
-            description = "VIX Volatility Index"
+            seriesId = "VIXCLS",
+            observations = listOf(
+                EconomicObservation(
+                    date = Instant.now().atZone(ZoneId.systemDefault()).toLocalDate(),
+                    value = 18.75,
+                    realTimeStart = Instant.now().atZone(ZoneId.systemDefault()).toLocalDate(),
+                    realTimeEnd = Instant.now().atZone(ZoneId.systemDefault()).toLocalDate()
+                )
+            ),
+            metadata = EconomicIndicatorMetadata(
+                seriesId = "VIXCLS",
+                title = "VIX Volatility Index",
+                frequency = "Daily",
+                units = "Index",
+                notes = null,
+                source = "Test Source"
+            )
         )
     }
+
 
     @Test
     fun `getIndicator should return indicator data when found`() {
@@ -50,10 +64,9 @@ class EconomicControllerTest {
             .andExpect(status().isOk)
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.success").value(true))
-            .andExpect(jsonPath("$.data.indicator").value("VIXCLS"))
-            .andExpect(jsonPath("$.data.value").value(18.75))
-            .andExpect(jsonPath("$.data.country").value("US"))
-            .andExpect(jsonPath("$.data.description").value("VIX Volatility Index"))
+            .andExpect(jsonPath("$.data.seriesId").value("VIXCLS"))
+            .andExpect(jsonPath("$.data.observations[0].value").value(18.75))
+            .andExpect(jsonPath("$.data.metadata.title").value("VIX Volatility Index"))
 
         verify(economicIndicatorService).getLatestIndicator("VIXCLS")
     }
@@ -95,7 +108,7 @@ class EconomicControllerTest {
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.data").isArray)
-            .andExpect(jsonPath("$.data.data[0].indicator").value("VIXCLS"))
+            .andExpect(jsonPath("$.data.data[0].seriesId").value("VIXCLS"))
             .andExpect(jsonPath("$.data.page").value(0))
             .andExpect(jsonPath("$.data.totalElements").value(1))
 

@@ -30,33 +30,45 @@ import kotlin.test.assertTrue
 class DataCollectionServiceTest {
 
     @Autowired
-    private lateinit var dataCollectionService: DataCollectionService
+    private lateinit var finnhubDataIngestor: FinnhubDataIngestor
+
+    @Autowired
+    private lateinit var fredDataIngestor: FREDDataIngestor
 
     @MockBean
-    private lateinit var kafkaTemplate: KafkaTemplate<String, String>
+    private lateinit var kafkaTemplate: KafkaTemplate<String, Any>
 
     @Autowired
     private lateinit var objectMapper: ObjectMapper
 
     @Test
-    fun `service should initialize without errors`() {
-        // Setup proper mock
-        @Suppress("UNCHECKED_CAST")
-        val mockSendResult = Mockito.mock(SendResult::class.java) as SendResult<String, String>
+    fun `finnhub service should initialize without errors`() {
+        val mockSendResult = Mockito.mock(SendResult::class.java) as SendResult<String, Any>
         val mockFuture = CompletableFuture.completedFuture(mockSendResult)
         
-        Mockito.`when`(kafkaTemplate.send(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+        Mockito.`when`(kafkaTemplate.send(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
             .thenReturn(mockFuture)
 
-        // When/Then - Service should start successfully
-        assertNotNull(dataCollectionService)
+        assertNotNull(finnhubDataIngestor)
         assertNotNull(objectMapper)
-        assertTrue(true) // If we get here, initialization was successful
+        assertTrue(true)
+    }
+
+    @Test
+    fun `fred service should initialize without errors`() {
+        val mockSendResult = Mockito.mock(SendResult::class.java) as SendResult<String, Any>
+        val mockFuture = CompletableFuture.completedFuture(mockSendResult)
+        
+        Mockito.`when`(kafkaTemplate.send(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
+            .thenReturn(mockFuture)
+
+        assertNotNull(fredDataIngestor)
+        assertTrue(true)
     }
 
     @Test
     fun `application context loads successfully`() {
-        // This test verifies the Spring application context can be loaded
-        assertNotNull(dataCollectionService)
+        assertNotNull(finnhubDataIngestor)
+        assertNotNull(fredDataIngestor)
     }
 }

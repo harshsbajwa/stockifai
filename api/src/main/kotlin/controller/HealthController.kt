@@ -3,6 +3,7 @@ package com.harshsbajwa.stockifai.api.controller
 import org.springframework.web.bind.annotation.*
 import java.time.Instant
 
+
 @RestController
 @RequestMapping("/api/v1/health")
 class HealthController {

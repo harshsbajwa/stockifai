@@ -54,19 +54,19 @@
   }
   
   .badge-success {
-    @apply badge bg-success-100 text-success-800;
+    @apply badge bg-success-100 text-success-700;
   }
   
   .badge-danger {
-    @apply badge bg-danger-100 text-danger-800;
+    @apply badge bg-danger-100 text-danger-700;
   }
   
   .badge-warning {
-    @apply badge bg-warning-100 text-warning-800;
+    @apply badge bg-warning-100 text-warning-700;
   }
   
   .badge-neutral {
-    @apply badge bg-gray-100 text-gray-800;
+    @apply badge bg-gray-100 text-gray-700;
   }
 }
 

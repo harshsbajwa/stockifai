@@ -28,7 +28,7 @@ class TestStreamConfig {
 
     @Bean
     @Primary
-    fun testProducerFactory(): ProducerFactory<String, String> {
+    fun testProducerFactory(): ProducerFactory<String, Any> {
         val configProps = mutableMapOf<String, Any>()
         configProps[ProducerConfig.BOOTSTRAP_SERVERS_CONFIG] = "localhost:9092"
         configProps[ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG] = StringSerializer::class.java
@@ -44,7 +44,7 @@ class TestStreamConfig {
 
     @Bean
     @Primary
-    fun testKafkaTemplate(producerFactory: ProducerFactory<String, String>): KafkaTemplate<String, String> {
+    fun testKafkaTemplate(producerFactory: ProducerFactory<String, Any>): KafkaTemplate<String, Any> {
         return KafkaTemplate(producerFactory)
     }
 

@@ -36,9 +36,10 @@ sleep 30
 
 echo
 echo "Step 4: Creating Kafka topics..."
-docker-compose exec kafka kafka-topics.sh --create --topic stock_prices --bootstrap-server localhost:9093 --partitions 3 --replication-factor 1 || true
-docker-compose exec kafka kafka-topics.sh --create --topic economic_indicators --bootstrap-server localhost:9093 --partitions 3 --replication-factor 1 || true
-docker-compose exec kafka kafka-topics.sh --create --topic intraday_data --bootstrap-server localhost:9093 --partitions 3 --replication-factor 1 || true
+docker-compose exec kafka kafka-topics.sh --create --topic finnhub-ohlcv-data --bootstrap-server localhost:9093 --partitions 3 --replication-factor 1 || true
+ docker-compose exec kafka kafka-topics.sh --create --topic finnhub-market-news-data --bootstrap-server localhost:9093 --partitions 3 --replication-factor 1 || true
+ docker-compose exec kafka kafka-topics.sh --create --topic finnhub-company-news-data --bootstrap-server localhost:9093 --partitions 3 --replication-factor 1 || true
+docker-compose exec kafka kafka-topics.sh --create --topic fred-economic-observations-data --bootstrap-server localhost:9093 --partitions 3 --replication-factor 1 || true
 
 echo
 echo "Step 5: Starting all services..."

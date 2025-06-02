@@ -1,146 +1,145 @@
 {
-    "dashboard": {
-      "id": null,
-      "title": "Application Metrics",
-      "tags": ["stockifai", "application", "metrics"],
-      "timezone": "browser",
-      "templating": {
-        "list": [
-          {
-            "name": "service",
-            "type": "query",
-            "query": "label_values(up, job)",
-            "refresh": 1,
-            "includeAll": true,
-            "multi": true
-          }
-        ]
-      },
-      "panels": [
+  "id": null,
+  "uid": "app_metrics_stockifai",
+  "title": "StockifAI Application Metrics",
+  "tags": ["stockifai", "application", "metrics"],
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "query": "label_values(up, job)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Health",
+      "type": "stat",
+      "targets": [
         {
-          "id": 1,
-          "title": "Service Health",
-          "type": "stat",
-          "targets": [
-            {
-              "expr": "up{job=~\"$service\"}",
-              "legendFormat": "{{job}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "thresholds": {
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "mappings": [
-                {"options": {"0": {"text": "DOWN"}}, "type": "value"},
-                {"options": {"1": {"text": "UP"}}, "type": "value"}
-              ]
-            }
-          },
-          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
-        },
-        {
-          "id": 2,
-          "title": "HTTP Request Rate",
-          "type": "timeseries",
-          "targets": [
-            {
-              "expr": "rate(http_requests_total{job=~\"$service\"}[5m])",
-              "legendFormat": "{{job}} - {{method}} {{status}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "unit": "reqps"
-            }
-          },
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
-        },
-        {
-          "id": 3,
-          "title": "HTTP Response Time",
-          "type": "timeseries",
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m]))",
-              "legendFormat": "{{job}} - 95th percentile",
-              "refId": "A"
-            },
-            {
-              "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m]))",
-              "legendFormat": "{{job}} - 50th percentile",
-              "refId": "B"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "unit": "s"
-            }
-          },
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
-        },
-        {
-          "id": 4,
-          "title": "JVM Memory Usage",
-          "type": "timeseries",
-          "targets": [
-            {
-              "expr": "jvm_memory_used_bytes{job=~\"$service\"}",
-              "legendFormat": "{{job}} - {{area}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "unit": "bytes"
-            }
-          },
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
-        },
-        {
-          "id": 5,
-          "title": "JVM GC Time",
-          "type": "timeseries",
-          "targets": [
-            {
-              "expr": "rate(jvm_gc_collection_seconds_sum{job=~\"$service\"}[5m])",
-              "legendFormat": "{{job}} - {{gc}}",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "unit": "s"
-            }
-          },
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+          "expr": "up{job=~\"$service\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
         }
       ],
-      "time": {
-        "from": "now-1h",
-        "to": "now"
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "mappings": [
+            {"options": {"0": {"text": "DOWN"}}, "type": "value"},
+            {"options": {"1": {"text": "UP"}}, "type": "value"}
+          ]
+        }
       },
-      "refresh": "30s"
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=~\"$service\"}[5m])",
+          "legendFormat": "{{job}} - {{method}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "id": 3,
+      "title": "HTTP Response Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m]))",
+          "legendFormat": "{{job}} - 95th percentile",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=~\"$service\"}[5m]))",
+          "legendFormat": "{{job}} - 50th percentile",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "id": 4,
+      "title": "JVM Memory Usage",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{job=~\"$service\"}",
+          "legendFormat": "{{job}} - {{area}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "id": 5,
+      "title": "JVM GC Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_collection_seconds_sum{job=~\"$service\"}[5m])",
+          "legendFormat": "{{job}} - {{gc}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
     }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s"
 }

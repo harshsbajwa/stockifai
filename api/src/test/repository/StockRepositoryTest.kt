@@ -29,7 +29,7 @@ class StockRepositoryTest {
     companion object {
         @Container
         val cassandraContainer = CassandraContainer(
-            DockerImageName.parse("cassandra:5.0.4")
+            DockerImageName.parse("cassandra:4.1.9")
         )
 
         @JvmStatic

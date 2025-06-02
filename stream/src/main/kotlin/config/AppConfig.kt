@@ -9,6 +9,7 @@ data class AppConfig(
     var stocks: String = "AAPL,GOOGL,MSFT",
     var finnhub: FinnhubProperties = FinnhubProperties(),
     var fred: FredProperties = FredProperties(),
+    var alphavantage: AlphavantageProperties = AlphavantageProperties(),
     var collection: CollectionProperties = CollectionProperties(),
     var market: MarketProperties = MarketProperties()
 )
@@ -21,6 +22,11 @@ data class FinnhubProperties(
 data class FredProperties(
     var api: ApiProperties = ApiProperties(),
     var baseUrl: String = "https://api.stlouisfed.org"
+)
+
+data class AlphavantageProperties(
+    var api: ApiProperties = ApiProperties(),
+    var baseUrl: String = "https://www.alphavantage.co"
 )
 
 data class ApiProperties(

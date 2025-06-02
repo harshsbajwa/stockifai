@@ -1,5 +1,6 @@
 package com.harshsbajwa.stockifai.stream
 
+import org.apache.avro.util.Utf8
 import com.harshsbajwa.stockifai.avro.finnhub.MarketNews
 import com.harshsbajwa.stockifai.avro.finnhub.StockCandle
 import com.harshsbajwa.stockifai.avro.fred.EconomicObservation
@@ -7,7 +8,12 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PostConstruct
+import com.harshsbajwa.stockifai.stream.config.AppConfig
 import org.apache.kafka.common.KafkaException
+import org.apache.kafka.common.errors.TopicExistsException
+import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.admin.AdminClientConfig
+import org.apache.kafka.clients.admin.NewTopic
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.SpringBootApplication
@@ -19,6 +25,7 @@ import org.springframework.retry.annotation.Retryable
 import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
+import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import org.springframework.web.util.UriComponentsBuilder
@@ -27,11 +34,16 @@ import reactor.util.retry.Retry
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.time.ZonedDateTime
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.TimeUnit
 
 @SpringBootApplication
 @EnableScheduling 
@@ -55,17 +67,6 @@ data class FinnhubQuote(
     @JsonProperty("t") val timestamp: Long? = null,
     @JsonProperty("d") val change: Double? = null,
     @JsonProperty("dp") val percentChange: Double? = null,
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class FinnhubStockCandles(
-    @JsonProperty("o") val open: List<Double>? = null,
-    @JsonProperty("h") val high: List<Double>? = null,
-    @JsonProperty("l") val low: List<Double>? = null,
-    @JsonProperty("c") val close: List<Double>? = null,
-    @JsonProperty("v") val volume: List<Long>? = null,
-    @JsonProperty("t") val timestamps: List<Long>? = null,
-    @JsonProperty("s") val status: String? = null,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -95,6 +96,55 @@ data class FredSeriesResponse(
     val observations: List<FredObservation>? = null
 )
 
+// Alphavantage API Response Models
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class AlphavantageMetaData(
+    @JsonProperty("1. Information") val information: String?,
+    @JsonProperty("2. Symbol") val symbol: String?,
+    @JsonProperty("3. Last Refreshed") val lastRefreshed: String?,
+    @JsonProperty("4. Interval") val interval: String?,
+    @JsonProperty("4. Output Size") val outputSizeDaily: String?,
+    @JsonProperty("5. Output Size") val outputSizeIntraday: String?,
+    @JsonProperty("5. Time Zone") val timeZoneDaily: String?,
+    @JsonProperty("6. Time Zone") val timeZoneIntraday: String?
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class AlphavantageCandleData(
+    @JsonProperty("1. open") val open: String?,
+    @JsonProperty("2. high") val high: String?,
+    @JsonProperty("3. low") val low: String?,
+    @JsonProperty("4. close") val close: String?,
+    @JsonProperty("5. volume") val volume: String?
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class AlphavantageIntradayResponse(
+    @JsonProperty("Meta Data") val metaData: AlphavantageMetaData? = null,
+    @JsonProperty("Time Series (1min)") val timeSeries1min: Map<String, AlphavantageCandleData>? = null,
+    @JsonProperty("Time Series (5min)") val timeSeries5min: Map<String, AlphavantageCandleData>? = null,
+    @JsonProperty("Time Series (15min)") val timeSeries15min: Map<String, AlphavantageCandleData>? = null,
+    @JsonProperty("Time Series (30min)") val timeSeries30min: Map<String, AlphavantageCandleData>? = null,
+    @JsonProperty("Time Series (60min)") val timeSeries60min: Map<String, AlphavantageCandleData>? = null,
+    @JsonProperty("Note") val note: String? = null,
+    @JsonProperty("Information") val information: String? = null,
+    @JsonProperty("Error Message") val errorMessage: String? = null
+) {
+    fun getTimeSeriesForInterval(interval: String): Map<String, AlphavantageCandleData>? = when (interval) {
+        "1min" -> timeSeries1min; "5min" -> timeSeries5min; "15min" -> timeSeries15min
+        "30min" -> timeSeries30min; "60min" -> timeSeries60min; else -> null
+    }
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class AlphavantageDailyResponse(
+    @JsonProperty("Meta Data") val metaData: AlphavantageMetaData? = null,
+    @JsonProperty("Time Series (Daily)") val timeSeriesDaily: Map<String, AlphavantageCandleData>? = null,
+    @JsonProperty("Note") val note: String? = null,
+    @JsonProperty("Information") val information: String? = null,
+    @JsonProperty("Error Message") val errorMessage: String? = null
+)
+
 // Service Metrics
 data class ServiceMetrics(
     val successfulRequests: AtomicLong = AtomicLong(0),
@@ -103,134 +153,229 @@ data class ServiceMetrics(
     val apiQuotaUsage: ConcurrentHashMap<String, AtomicLong> = ConcurrentHashMap()
 )
 
+@Component
+class KafkaTopicConfiguration(
+    @Value("\${spring.kafka.bootstrap-servers:localhost:9092}")
+    private val bootstrapServers: String
+) {
+    
+    private val logger = LoggerFactory.getLogger(KafkaTopicConfiguration::class.java)
+
+    @PostConstruct
+    fun createTopics() {
+        val adminClient = AdminClient.create(mapOf(
+            AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG to bootstrapServers
+        ))
+
+        val topics = listOf(
+            NewTopic("dead-letter-queue", 1, 1.toShort()),
+            NewTopic("data-quality-metrics", 1, 1.toShort())
+        )
+
+        try {
+            val result = adminClient.createTopics(topics)
+            result.all().get(30, TimeUnit.SECONDS)
+            logger.info("Successfully created monitoring topics")
+        } catch (e: TopicExistsException) {
+            logger.info("Monitoring topics already exist")
+        } catch (e: Exception) {
+            logger.warn("Failed to create monitoring topics: ${e.message}")
+        } finally {
+            adminClient.close()
+        }
+    }
+}
+
+@Service
+class DataQualityMonitoringService(
+    private val avroKafkaTemplate: KafkaTemplate<String, Any>
+) {
+    private val logger = LoggerFactory.getLogger(DataQualityMonitoringService::class.java)
+    private val invalidRecordCount = AtomicLong(0)
+    private val validRecordCount = AtomicLong(0)
+
+    fun recordValidRecord(source: String, recordType: String) {
+        validRecordCount.incrementAndGet()
+        logger.debug("Valid {} record from {}", recordType, source)
+    }
+
+    fun recordInvalidRecord(source: String, recordType: String, reason: String, data: Any? = null) {
+        invalidRecordCount.incrementAndGet()
+        logger.warn("Invalid {} record from {}: {}. Data: {}", recordType, source, reason, 
+            data?.toString()?.take(100))
+        
+        // Send to dead letter topic for analysis
+        try {
+            val deadLetterRecord = mapOf(
+                "source" to source,
+                "recordType" to recordType,
+                "reason" to reason,
+                "timestamp" to Instant.now().toString(),
+                "data" to data?.toString()?.take(500)
+            )
+            
+            avroKafkaTemplate.send("dead-letter-queue", source, deadLetterRecord)
+        } catch (e: Exception) {
+            logger.error("Failed to send record to dead letter queue", e)
+        }
+    }
+
+    @Scheduled(fixedRate = 300000) // Every 5 minutes
+    fun logDataQualityMetrics() {
+        val valid = validRecordCount.get()
+        val invalid = invalidRecordCount.get()
+        val total = valid + invalid
+        val qualityRate = if (total > 0) (valid.toDouble() / total * 100) else 100.0
+        
+        logger.info("Data Quality Metrics - Valid: {}, Invalid: {}, Quality Rate: {:.2f}%", 
+            valid, invalid, qualityRate)
+        
+        if (qualityRate < 95.0) {
+            logger.warn("Data quality degraded! Quality rate: {:.2f}%", qualityRate)
+        }
+    }
+}
+
 @Service
 class FinnhubDataIngestor(
     private val avroKafkaTemplate: KafkaTemplate<String, Any>,
-    private val objectMapper: ObjectMapper,
+    private val appConfig: AppConfig
 ) {
     private val logger = LoggerFactory.getLogger(FinnhubDataIngestor::class.java)
     private val webClient = WebClient.builder()
         .codecs { configurer -> configurer.defaultCodecs().maxInMemorySize(1024 * 1024) }
         .build()
     
-    private val metrics = ServiceMetrics()
-
-    @Value("\${app.stocks:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,SPY,QQQ}")
-    private lateinit var stockSymbols: String
-
-    @Value("\${app.finnhub.api.key:#{null}}")
-    private val finnhubApiKey: String? = null
-
-    @Value("\${app.finnhub.baseUrl:https://finnhub.io/api/v1}")
-    private lateinit var finnhubBaseUrl: String
-
-    @Value("\${app.collection.enabled:true}")
-    private val collectionEnabled: Boolean = true
+    internal val metrics = ServiceMetrics()
 
     private val stockList: List<String> by lazy { 
-        stockSymbols.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        appConfig.stocks.split(",").map { it.trim() }.filter { it.isNotBlank() }
     }
     
-    private val currentSymbolIndex = AtomicInteger(0)
+    private val currentQuoteSymbolIndex = AtomicInteger(0)
+    private val finnhubApiKey: String? by lazy { appConfig.finnhub.api.key }
 
     @PostConstruct
     fun init() {
         logger.info("=== Finnhub Data Ingestor Initialized ===")
-        logger.info("Collection enabled: {}", collectionEnabled)
-        logger.info("Monitoring {} stocks: {}", stockList.size, stockList)
-        logger.info("Finnhub API configured: {}", finnhubApiKey != null)
+        logger.info("Collection enabled: {}", appConfig.collection.enabled)
+        logger.info("Monitoring {} stocks for quotes: {}", stockList.size, stockList)
+        logger.info("Finnhub API configured for quotes/news: {}", finnhubApiKey != null)
         
         if (finnhubApiKey == null) {
-            logger.warn("FINNHUB_API_KEY is not set. Stock data collection will be skipped.")
+            logger.warn("FINNHUB_API_KEY is not set. Finnhub data collection will be skipped.")
         }
     }
 
-    // Fetch OHLCV for one symbol every 2 seconds to stay within 60 calls/min limit
-    @Scheduled(fixedRate = 2000)
+    @Scheduled(fixedRate = 60000)
     @Retryable(value = [Exception::class], maxAttempts = 3, backoff = Backoff(delay = 1000))
-    fun fetchOhlcvDataScheduled() {
-        if (!collectionEnabled || finnhubApiKey == null || stockList.isEmpty()) {
+    fun fetchQuoteDataScheduled() {
+        if (!appConfig.collection.enabled || finnhubApiKey == null || stockList.isEmpty()) {
             return
         }
 
-        val symbol = stockList[currentSymbolIndex.getAndIncrement() % stockList.size]
-        fetchStockCandles(symbol)
+        val symbol = stockList[currentQuoteSymbolIndex.getAndIncrement() % stockList.size]
+        fetchStockQuote(symbol)
     }
 
-    private fun fetchStockCandles(symbol: String) {
-        val toTimestamp = Instant.now().epochSecond
-        val fromTimestamp = Instant.now().minus(1, ChronoUnit.DAYS).epochSecond
-
+    private fun fetchStockQuote(symbol: String) {
         val finnhubUrl = UriComponentsBuilder
-            .fromUriString("$finnhubBaseUrl/stock/candle")
+            .fromUriString("${appConfig.finnhub.baseUrl}/quote")
             .queryParam("symbol", symbol)
-            .queryParam("resolution", "D")
-            .queryParam("from", fromTimestamp)
-            .queryParam("to", toTimestamp)
             .queryParam("token", finnhubApiKey)
             .toUriString()
 
         webClient.get()
             .uri(finnhubUrl)
             .retrieve()
-            .bodyToMono(FinnhubStockCandles::class.java)
-            .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
+            .bodyToMono(FinnhubQuote::class.java)
+            .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)).maxAttempts(2))
             .timeout(Duration.ofSeconds(10))
-            .doOnSuccess { candles ->
-                processStockCandles(symbol, candles)
+            .doOnSuccess { quote ->
+                processStockQuote(symbol, quote)
+                metrics.apiQuotaUsage.computeIfAbsent("finnhub_quote") { AtomicLong(0) }.incrementAndGet()
             }
             .doOnError { error ->
-                handleStockDataError(symbol, error)
+                handleFinnhubError(symbol, "quote", error)
             }
             .onErrorResume { Mono.empty() }
             .subscribe()
     }
 
-    private fun processStockCandles(symbol: String, candles: FinnhubStockCandles) {
-        if (candles.status == "no_data" || candles.close.isNullOrEmpty()) {
-            logger.debug("No candle data available for {}", symbol)
-            return
-        }
-
-        val size = candles.close.size
-        for (i in 0 until size) {
-            try {
-                val stockCandle = StockCandle.newBuilder()
-                    .setSymbol(symbol)
-                    .setOpen(candles.open?.get(i) ?: 0.0)
-                    .setHigh(candles.high?.get(i) ?: 0.0)
-                    .setLow(candles.low?.get(i) ?: 0.0)
-                    .setClose(candles.close[i])
-                    .setVolume(candles.volume?.get(i) ?: 0L)
-                    .setTimestamp(candles.timestamps?.get(i)?.times(1000) ?: System.currentTimeMillis())
-                    .build()
-
-                publishToKafka("finnhub-ohlcv-data", symbol, stockCandle)
-                metrics.successfulRequests.incrementAndGet()
-            } catch (e: Exception) {
-                logger.error("Error processing candle data for {} at index {}: {}", symbol, i, e.message)
+    private fun processStockQuote(symbol: String, quote: FinnhubQuote) {
+        try {
+            if (symbol.isBlank()) {
+                logger.warn("Skipping quote with empty symbol")
                 metrics.failedRequests.incrementAndGet()
+                return
             }
-        }
 
-        logger.debug("Processed {} candles for {}", size, symbol)
-        metrics.apiQuotaUsage.computeIfAbsent("finnhub") { AtomicLong(0) }.incrementAndGet()
+            val timestampMillis = if (quote.timestamp != null && quote.timestamp > 0) {
+                quote.timestamp * 1000L
+            } else {
+                System.currentTimeMillis()
+            }
+
+            val currentPrice = quote.currentPrice?.takeIf { it > 0 } ?: return
+            val open = quote.openPriceOfDay?.takeIf { it > 0 } ?: currentPrice
+            val high = quote.highPriceOfDay?.takeIf { it > 0 } ?: currentPrice
+            val low = quote.lowPriceOfDay?.takeIf { it > 0 } ?: currentPrice
+            val close = currentPrice
+
+            if (high < low || open < 0 || close < 0 || high < close || low > close) {
+                logger.warn("Invalid OHLC relationships for {}: O={}, H={}, L={}, C={}", 
+                    symbol, open, high, low, close)
+                metrics.failedRequests.incrementAndGet()
+                return
+            }
+
+            logger.debug("Creating StockCandle for {}: timestamp={} ({}), O={}, H={}, L={}, C={}", 
+                symbol, timestampMillis, Instant.ofEpochMilli(timestampMillis), open, high, low, close)
+
+            val stockCandle = StockCandle.newBuilder()
+                .setSymbol(Utf8(symbol))
+                .setOpen(open)
+                .setHigh(high)
+                .setLow(low)
+                .setClose(close)
+                .setVolume(0L)
+                .setTimestamp(Instant.ofEpochMilli(timestampMillis))
+                .build()
+
+            publishToKafka("finnhub-ohlcv-data", symbol, stockCandle)
+            metrics.successfulRequests.incrementAndGet()
+            metrics.lastSuccessfulCollection.set(Instant.now().epochSecond)
+            
+            logger.info("Successfully processed quote for {} at price {} timestamp {}", 
+                symbol, close, Instant.ofEpochMilli(timestampMillis))
+                
+        } catch (e: Exception) {
+            logger.error("Error processing quote data for {}: {}", symbol, e.message, e)
+            metrics.failedRequests.incrementAndGet()
+        }
+    }
+
+    private fun isValidPriceData(open: Double, high: Double, low: Double, close: Double): Boolean {
+        return true 
+            // open > 0 && high > 0 && low > 0 && close > 0 &&
+            // high >= low && high >= open && high >= close &&
+            // low <= open && low <= close // &&
+            // open < 1_000_000 && high < 1_000_000 && low < 1_000_000 && close < 1_000_000  // Reasonable price limits
     }
 
     // Fetch market news every 5 minutes
     @Scheduled(fixedRate = 300000)
     @Retryable(value = [Exception::class], maxAttempts = 2, backoff = Backoff(delay = 2000))
     fun fetchMarketNewsScheduled() {
-        if (!collectionEnabled || finnhubApiKey == null) {
+        if (!appConfig.collection.enabled || finnhubApiKey == null) {
             return
         }
-
         fetchMarketNews("general")
     }
 
     private fun fetchMarketNews(category: String) {
         val finnhubUrl = UriComponentsBuilder
-            .fromUriString("$finnhubBaseUrl/news")
+            .fromUriString("${appConfig.finnhub.baseUrl}/news")
             .queryParam("category", category)
             .queryParam("token", finnhubApiKey)
             .toUriString()
@@ -243,47 +388,68 @@ class FinnhubDataIngestor(
             .timeout(Duration.ofSeconds(15))
             .doOnSuccess { newsArray ->
                 processMarketNews(category, newsArray?.toList() ?: emptyList())
+                metrics.apiQuotaUsage.computeIfAbsent("finnhub_news") { AtomicLong(0) }.incrementAndGet()
             }
             .doOnError { error ->
-                handleNewsError(category, error)
+                handleFinnhubError(category, "news", error)
             }
             .onErrorResume { Mono.empty() }
             .subscribe()
     }
 
     private fun processMarketNews(category: String, newsList: List<FinnhubNews>) {
+        var validCount = 0
+        var invalidCount = 0
+        
         newsList.forEach { news ->
             try {
-                if (news.headline != null && news.summary != null && news.url != null) {
+                if (isValidNewsRecord(news)) {
                     val marketNews = MarketNews.newBuilder()
-                        .setCategory(category)
-                        .setDatetime(news.datetime ?: System.currentTimeMillis())
-                        .setHeadline(news.headline)
-                        .setId(news.id ?: 0L)
-                        .setImage(news.image)
-                        .setRelated(news.related)
-                        .setSource(news.source ?: "Finnhub")
-                        .setSummary(news.summary)
-                        .setUrl(news.url)
+                        .setCategory(Utf8(news.category ?: category))
+                        .setDatetime(
+                            news.datetime?.let { Instant.ofEpochMilli(it) }
+                                ?: Instant.now()
+                        )
+                        .setHeadline(Utf8(news.headline!!))
+                        .setId(news.id ?: System.currentTimeMillis())
+                        .setImage(news.image?.let { Utf8(it) })
+                        .setRelated(news.related?.let { Utf8(it) })
+                        .setSource(Utf8(news.source ?: "Finnhub"))
+                        .setSummary(Utf8(news.summary!!))
+                        .setUrl(Utf8(news.url!!))
                         .build()
 
-                    publishToKafka("finnhub-market-news-data", category, marketNews)
+                    publishToKafka("finnhub-market-news-data", news.related ?: category, marketNews)
+                    validCount++
                     metrics.successfulRequests.incrementAndGet()
+                } else {
+                    invalidCount++
+                    logger.warn("Invalid news record skipped: headline={}, summary={}, url={}", 
+                        news.headline?.take(50), news.summary?.take(50), news.url)
                 }
             } catch (e: Exception) {
-                logger.error("Error processing news item: {}", e.message)
+                invalidCount++
+                logger.error("Error processing news item: {}", e.message, e)
                 metrics.failedRequests.incrementAndGet()
             }
         }
+        
+        logger.info("Processed news for category {}: {} valid, {} invalid", category, validCount, invalidCount)
+    }
 
-        logger.info("Processed {} news items for category: {}", newsList.size, category)
-        metrics.apiQuotaUsage.computeIfAbsent("finnhub") { AtomicLong(0) }.incrementAndGet()
+    private fun isValidNewsRecord(news: FinnhubNews): Boolean {
+        return !news.headline.isNullOrBlank() && 
+            !news.summary.isNullOrBlank() && 
+            !news.url.isNullOrBlank() &&
+            news.headline!!.length <= 1000 &&
+            news.summary!!.length <= 5000 &&
+            news.url!!.startsWith("http")
     }
 
     private fun publishToKafka(topic: String, key: String, message: Any) {
         try {
             val future = avroKafkaTemplate.send(topic, key, message)
-            future.whenComplete { result, ex ->
+            future.whenComplete { _, ex ->
                 if (ex != null) {
                     logger.error("Failed to send to Kafka [{}]: {} - {}", topic, key, ex.message)
                 } else {
@@ -296,31 +462,19 @@ class FinnhubDataIngestor(
         }
     }
 
-    private fun handleStockDataError(symbol: String, error: Throwable) {
+    private fun handleFinnhubError(identifier: String, type: String, error: Throwable) {
         metrics.failedRequests.incrementAndGet()
         when (error) {
             is WebClientResponseException -> {
+                val errorBody = error.responseBodyAsString
                 when (error.statusCode.value()) {
-                    429 -> logger.warn("Rate limit exceeded for Finnhub API ({})", symbol)
-                    403 -> logger.error("Finnhub API authentication failed ({})", symbol)
-                    else -> logger.error("Finnhub API error for {}: {} - {}", symbol, error.statusCode, error.message)
+                    429 -> logger.warn("Rate limit exceeded for Finnhub API ($type for {}). Response: {}", identifier, errorBody)
+                    403 -> logger.error("Finnhub API authentication failed ($type for {}). Response: {}", identifier, errorBody)
+                    401 -> logger.error("Finnhub API unauthorized (check API key) ($type for {}). Response: {}", identifier, errorBody)
+                    else -> logger.error("Finnhub API error for {} ($type): {} - {}. Response: {}", identifier, type, error.statusCode, error.message, errorBody)
                 }
             }
-            else -> logger.error("Error fetching stock data for {}: {}", symbol, error.message)
-        }
-    }
-
-    private fun handleNewsError(category: String, error: Throwable) {
-        metrics.failedRequests.incrementAndGet()
-        when (error) {
-            is WebClientResponseException -> {
-                when (error.statusCode.value()) {
-                    429 -> logger.warn("Rate limit exceeded for Finnhub news API ({})", category)
-                    403 -> logger.error("Finnhub news API authentication failed ({})", category)
-                    else -> logger.error("Finnhub news API error for {}: {} - {}", category, error.statusCode, error.message)
-                }
-            }
-            else -> logger.error("Error fetching news for {}: {}", category, error.message)
+            else -> logger.error("Error fetching Finnhub $type data for {}: {}", identifier, error.message, error)
         }
     }
 }
@@ -335,7 +489,7 @@ class FREDDataIngestor(
         .codecs { configurer -> configurer.defaultCodecs().maxInMemorySize(1024 * 1024) }
         .build()
     
-    private val metrics = ServiceMetrics()
+    internal val metrics = ServiceMetrics()
 
     @Value("\${app.fred.api.key:#{null}}")
     private val fredApiKey: String? = null
@@ -414,21 +568,21 @@ class FREDDataIngestor(
     }
 
     private fun processFredResponse(seriesId: String, response: FredSeriesResponse) {
-        response.observations?.forEach { observation ->
-            try {
-                if (observation.date != null && observation.value != null) {
-                    val economicObservation = EconomicObservation.newBuilder()
-                        .setSeriesId(seriesId)
-                        .setObservationDate(observation.date)
-                        .setValue(observation.value)
-                        .setRealTimeStart(observation.realtimeStart ?: "")
-                        .setRealTimeEnd(observation.realtimeEnd ?: "")
-                        .build()
+       response.observations?.forEach { observation ->
+        try {
+            if (observation.date != null && observation.value != null) {
+                val economicObservation = EconomicObservation.newBuilder()
+                    .setSeriesId(Utf8(seriesId))
+                    .setObservationDate(Utf8(observation.date))
+                    .setValue(Utf8(observation.value))
+                    .setRealTimeStart(Utf8(observation.realtimeStart ?: ""))
+                    .setRealTimeEnd(Utf8(observation.realtimeEnd ?: ""))
+                    .build()
 
-                    publishToKafka("fred-economic-observations-data", seriesId, economicObservation)
-                    metrics.successfulRequests.incrementAndGet()
-                }
-            } catch (e: Exception) {
+                publishToKafka("fred-economic-observations-data", seriesId, economicObservation)
+                metrics.successfulRequests.incrementAndGet()
+            }
+        } catch (e: Exception) {
                 logger.error("Error processing FRED observation for {}: {}", seriesId, e.message)
                 metrics.failedRequests.incrementAndGet()
             }
@@ -441,7 +595,7 @@ class FREDDataIngestor(
     private fun publishToKafka(topic: String, key: String, message: Any) {
         try {
             val future = avroKafkaTemplate.send(topic, key, message)
-            future.whenComplete { result, ex ->
+            future.whenComplete { _, ex ->
                 if (ex != null) {
                     logger.error("Failed to send to Kafka [{}]: {} - {}", topic, key, ex.message)
                 } else {
@@ -458,13 +612,288 @@ class FREDDataIngestor(
         metrics.failedRequests.incrementAndGet()
         when (error) {
             is WebClientResponseException -> {
+                val errorBody = error.responseBodyAsString
                 when (error.statusCode.value()) {
-                    429 -> logger.warn("Rate limit exceeded for FRED API ({})", seriesId)
-                    400 -> logger.error("Invalid FRED API request for {}: {}", seriesId, error.message)
-                    else -> logger.error("FRED API error for {}: {} - {}", seriesId, error.statusCode, error.message)
+                    429 -> logger.warn("Rate limit exceeded for FRED API ({})", seriesId, errorBody)
+                    400 -> logger.error("Invalid FRED API request for {}: {}", seriesId, error.message, errorBody)
+                    else -> logger.error("FRED API error for {}: {} - {}", seriesId, error.statusCode, error.message, errorBody)
                 }
             }
-            else -> logger.error("Error fetching FRED data for {}: {}", seriesId, error.message)
+            else -> logger.error("Error fetching FRED data for {}: {}", seriesId, error.message, error)
+        }
+    }
+}
+
+@Service
+class AlphavantageApiQuotaService {
+    private val logger = LoggerFactory.getLogger(AlphavantageApiQuotaService::class.java)
+    private val MAX_CALLS_PER_DAY = 25 
+    private var callsToday = AtomicInteger(0)
+    private var lastResetDate = AtomicReference(LocalDate.now(ZoneId.of("UTC")))
+
+    fun canMakeCall(): Boolean {
+        resetIfNewDay()
+        val currentCalls = callsToday.get()
+        if (currentCalls < MAX_CALLS_PER_DAY) {
+            return true
+        }
+        logger.warn("Alphavantage API daily quota of $MAX_CALLS_PER_DAY reached. Calls made: $currentCalls.")
+        return false
+    }
+
+    fun recordCall() {
+        resetIfNewDay() 
+        if (callsToday.get() < MAX_CALLS_PER_DAY) {
+            val newCount = callsToday.incrementAndGet()
+            logger.info("Alphavantage API call recorded. Calls today: $newCount/$MAX_CALLS_PER_DAY")
+        } else {
+            logger.warn("Attempted to record Alphavantage API call, but quota already reached.")
+        }
+    }
+
+    private fun resetIfNewDay() {
+        val today = LocalDate.now(ZoneId.of("UTC"))
+        if (lastResetDate.get().isBefore(today)) {
+            synchronized(this) {
+                if (lastResetDate.get().isBefore(today)) { 
+                    logger.info("New day detected (UTC). Resetting Alphavantage API call count from ${callsToday.get()} to 0.")
+                    callsToday.set(0)
+                    lastResetDate.set(today)
+                }
+            }
+        }
+    }
+    fun getCallsMadeToday(): Int = callsToday.get()
+    fun getQuotaLimit(): Int = MAX_CALLS_PER_DAY
+}
+
+@Service
+class AlphavantageDataIngestor(
+    private val avroKafkaTemplate: KafkaTemplate<String, Any>,
+    private val appConfig: AppConfig,
+    private val quotaService: AlphavantageApiQuotaService
+) {
+    private val logger = LoggerFactory.getLogger(AlphavantageDataIngestor::class.java)
+    private val webClient = WebClient.builder()
+        .codecs { configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024) }
+        .build()
+
+    private val stockList: List<String> by lazy {
+        appConfig.stocks.split(",").map { it.trim() }.filter { it.isNotBlank() }
+    }
+    
+    private val dailyStockFetchIndex = AtomicInteger(0)
+    private val intradayStockFetchIndex = AtomicInteger(0)
+    
+    private val easternZoneId = ZoneId.of("US/Eastern")
+    private val ymdHmsFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(easternZoneId)
+    private val ymdFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(easternZoneId)
+    private val alphavantageApiKey: String? by lazy { appConfig.alphavantage.api.key }
+
+    @PostConstruct
+    fun init() {
+        logger.info("=== Alphavantage Data Ingestor Initialized ===")
+        logger.info("Collection enabled: {}", appConfig.collection.enabled)
+        logger.info("Monitoring {} stocks via Alphavantage for historical candles: {}", stockList.size, stockList)
+        logger.info("Alphavantage API Key Configured: {}", !alphavantageApiKey.isNullOrBlank())
+        if (alphavantageApiKey.isNullOrBlank()) {
+            logger.warn("ALPHAVANTAGE_API_KEY is not set. Alphavantage candle data collection will be skipped.")
+        }
+    }
+
+    @Scheduled(cron = "0 5 0 * * ?") // 12:05 AM UTC daily
+    fun fetchHistoricalDataScheduled() {
+        if (!appConfig.collection.enabled || alphavantageApiKey.isNullOrBlank() || stockList.isEmpty()) {
+            logger.info("Alphavantage collection disabled, API key missing, or no stocks to monitor.")
+            return
+        }
+        logger.info("Starting daily Alphavantage historical data fetch. Calls made today before start: {}/{}", 
+            quotaService.getCallsMadeToday(), quotaService.getQuotaLimit())
+        
+        val dailyStocksToFetch = 2
+        for (i in 0 until dailyStocksToFetch) {
+            if (!quotaService.canMakeCall()) {
+                logger.warn("Alphavantage quota reached. Stopping daily fetch.")
+                break
+            }
+            val symbol = stockList[dailyStockFetchIndex.getAndIncrement() % stockList.size]
+            fetchTimeSeriesDaily(symbol)
+            try { Thread.sleep(15000) } catch (e: InterruptedException) {
+                logger.warn("Alphavantage daily fetch sleep interrupted for $symbol"); Thread.currentThread().interrupt()
+            }
+        }
+
+        if (quotaService.canMakeCall()) {
+            val symbolForIntraday = stockList[intradayStockFetchIndex.getAndIncrement() % stockList.size]
+            fetchTimeSeriesIntraday(symbolForIntraday, "5min", outputSize = "full")
+        } else {
+            logger.warn("Alphavantage quota reached. Skipping intraday fetch.")
+        }
+        logger.info("Finished daily Alphavantage data fetch. Calls made today: {}/{}", 
+            quotaService.getCallsMadeToday(), quotaService.getQuotaLimit())
+    }
+
+    private fun fetchTimeSeriesDaily(symbol: String) {
+        logger.info("Fetching TIME_SERIES_DAILY for $symbol from Alphavantage")
+        val apiUrl = UriComponentsBuilder.fromUriString("${appConfig.alphavantage.baseUrl}/query")
+            .queryParam("function", "TIME_SERIES_DAILY")
+            .queryParam("symbol", symbol)
+            .queryParam("outputsize", "full") 
+            .queryParam("apikey", alphavantageApiKey)
+            .queryParam("datatype", "json")
+            .toUriString()
+
+        webClient.get().uri(apiUrl).retrieve().bodyToMono(AlphavantageDailyResponse::class.java)
+            .doOnSubscribe { logger.debug("Subscribing to Alphavantage DAILY for {}", symbol) }
+            .doOnSuccess { response ->
+                if (handleAlphavantageApiResponseNotes(symbol, "DAILY", response.note, response.information, response.errorMessage)) {
+                    quotaService.recordCall() 
+                    processDailyData(symbol, response)
+                }
+            }.doOnError { error -> handleAlphavantageError(symbol, "DAILY", error) }
+            .subscribe()
+    }
+
+    private fun fetchTimeSeriesIntraday(symbol: String, interval: String, month: String? = null, outputSize: String = "compact") {
+        logger.info("Fetching TIME_SERIES_INTRADAY for $symbol, interval $interval from Alphavantage")
+        val apiUrlBuilder = UriComponentsBuilder.fromUriString("${appConfig.alphavantage.baseUrl}/query")
+            .queryParam("function", "TIME_SERIES_INTRADAY")
+            .queryParam("symbol", symbol)
+            .queryParam("interval", interval)
+            .queryParam("apikey", alphavantageApiKey)
+            .queryParam("outputsize", outputSize)
+            .queryParam("extended_hours", "true")
+            .queryParam("datatype", "json")
+        month?.let { apiUrlBuilder.queryParam("month", it) }
+        webClient.get().uri(apiUrlBuilder.toUriString()).retrieve().bodyToMono(AlphavantageIntradayResponse::class.java)
+             .doOnSubscribe { logger.debug("Subscribing to Alphavantage INTRADAY for {}", symbol) }
+            .doOnSuccess { response ->
+                if (handleAlphavantageApiResponseNotes(symbol, "INTRADAY ($interval)", response.note, response.information, response.errorMessage)) {
+                    quotaService.recordCall()
+                    processIntradayData(symbol, interval, response)
+                }
+            }.doOnError { error -> handleAlphavantageError(symbol, "INTRADAY ($interval)", error) }
+            .subscribe()
+    }
+    
+    private fun handleAlphavantageApiResponseNotes(symbol: String, type: String, note: String?, info: String?, errorMsg: String?): Boolean {
+        var isDataExpected = true
+        if (note != null) {
+            logger.warn("Alphavantage API Note for $symbol ($type): $note")
+            if (note.contains("API call frequency") || note.contains("Premium")) {
+                 isDataExpected = false
+            }
+        }
+        if (info != null) {
+            logger.info("Alphavantage API Information for $symbol ($type): $info")
+            if (info.contains("demo API key") || info.contains("Thank you")) {
+                 isDataExpected = false
+            }
+        }
+        if (errorMsg != null) {
+            logger.error("Alphavantage API Error Message for $symbol ($type): $errorMsg")
+            isDataExpected = false
+        }
+        if (!isDataExpected) {
+            logger.warn("Not recording API call for $symbol ($type) due to API note/info/error indicating no data.")
+        }
+        return isDataExpected
+    }
+
+    private fun processDailyData(symbol: String, response: AlphavantageDailyResponse) {
+        val timeZone = response.metaData?.timeZoneDaily ?: "US/Eastern"
+        val dailyZoneId = try { ZoneId.of(timeZone) } catch (e: Exception) { logger.warn("Invalid timezone '$timeZone' for $symbol daily, defaulting to US/Eastern."); easternZoneId }
+
+        response.timeSeriesDaily?.forEach { (dateStr, data) ->
+            try {
+                val localDate = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE)
+                val zonedDateTime = localDate.atStartOfDay(dailyZoneId)
+                val timestamp = zonedDateTime.toInstant()
+                
+                publishCandle(symbol, data, timestamp, "DAILY")
+            } catch (e: Exception) {
+                logger.error("Error processing Alphavantage daily candle for $symbol on $dateStr: ${e.message}", e)
+            }
+        }
+        logger.info("Processed ${response.timeSeriesDaily?.size ?: 0} Alphavantage daily candles for $symbol.")
+    }
+
+    private fun processIntradayData(symbol: String, interval: String, response: AlphavantageIntradayResponse) {
+        val timeZone = response.metaData?.timeZoneIntraday ?: "US/Eastern"
+        val intradayZoneId = try { ZoneId.of(timeZone) } catch (e: Exception) { logger.warn("Invalid timezone '$timeZone' for $symbol intraday, defaulting to US/Eastern."); easternZoneId }
+        
+        val dateTimeParser = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(intradayZoneId)
+
+        val timeSeries = response.getTimeSeriesForInterval(interval)
+        timeSeries?.forEach { (dateTimeStr, data) ->
+            try {
+                val timestamp = ZonedDateTime.parse(dateTimeStr, dateTimeParser).toInstant()
+                publishCandle(symbol, data, timestamp, "INTRADAY_$interval")
+            } catch (e: Exception) {
+                logger.error("Error processing Alphavantage intraday candle for $symbol at $dateTimeStr ($interval): ${e.message}", e)
+            }
+        }
+        logger.info("Processed ${timeSeries?.size ?: 0} Alphavantage intraday ($interval) candles for $symbol.")
+    }
+
+    private fun publishCandle(symbol: String, data: AlphavantageCandleData, timestamp: Instant, type: String) {
+        try {
+            val open = data.open?.toDoubleOrNull() ?: 0.0
+            val high = data.high?.toDoubleOrNull() ?: 0.0
+            val low = data.low?.toDoubleOrNull() ?: 0.0
+            val close = data.close?.toDoubleOrNull() ?: 0.0
+            val volume = data.volume?.toLongOrNull() ?: 0L
+
+            if (symbol.isBlank() || !isValidPriceData(open, high, low, close)) {
+                logger.warn("Invalid Alphavantage candle data ($type) for {} at {}: O={}, H={}, L={}, C={}",
+                    symbol, timestamp, open, high, low, close)
+                return
+            }
+
+            val stockCandle = StockCandle.newBuilder()
+                .setSymbol(Utf8(symbol))
+                .setOpen(open)
+                .setHigh(high)
+                .setLow(low)
+                .setClose(close)
+                .setVolume(volume)
+                .setTimestamp(Instant.ofEpochMilli(timestamp.toEpochMilli()))
+                .build()
+
+            publishToKafka("finnhub-ohlcv-data", symbol, stockCandle)
+            logger.debug("Published Alphavantage candle ($type) for {} at {}: C={}", 
+                symbol, timestamp, close)
+                
+        } catch (e: Exception) {
+            logger.error("Error building or publishing Alphavantage candle ($type) for $symbol at $timestamp: ${e.message}", e)
+        }
+    }
+
+    private fun isValidPriceData(open: Double, high: Double, low: Double, close: Double): Boolean {
+        return open > 0 && high > 0 && low > 0 && close > 0 &&
+            high >= low && high >= open && high >= close &&
+            low <= open && low <= close // &&
+            // open < 1_000_000 && high < 1_000_000 && low < 1_000_000 && close < 1_000_000
+    }
+
+    private fun handleAlphavantageError(symbol: String, type: String, error: Throwable) {
+        when (error) {
+            is WebClientResponseException -> {
+                 logger.error("Alphavantage API error for $symbol ($type): ${error.statusCode} - ${error.message}. Body: ${error.responseBodyAsString}", error)
+            }
+            else -> logger.error("Error fetching Alphavantage $type data for $symbol: ${error.message}", error)
+        }
+    }
+
+    private fun publishToKafka(topic: String, key: String, message: Any) {
+        try {
+            val future = avroKafkaTemplate.send(topic, key, message)
+            future.whenComplete { _, ex ->
+                if (ex != null) logger.error("Failed to send Alphavantage data to Kafka [{}]: {} - {}", topic, key, ex.message)
+                else logger.debug("Sent Alphavantage data to Kafka [{}]: {}", topic, key)
+            }
+        } catch (e: KafkaException) {
+            logger.error("Kafka error for Alphavantage data {} on topic {}: {}", key, topic, e.message)
         }
     }
 }
@@ -472,32 +901,40 @@ class FREDDataIngestor(
 @Service
 class MetricsService(
     private val finnhubIngestor: FinnhubDataIngestor,
-    private val fredIngestor: FREDDataIngestor
+    private val fredIngestor: FREDDataIngestor,
+    private val alphavantageApiQuotaService: AlphavantageApiQuotaService
 ) {
     private val logger = LoggerFactory.getLogger(MetricsService::class.java)
 
     @Scheduled(fixedRate = 60000) // Every minute
     fun logMetrics() {
-        logServiceMetrics("Finnhub", finnhubIngestor.metrics)
-        logServiceMetrics("FRED", fredIngestor.metrics)
+        logServiceMetrics("FinnhubQuotes", finnhubIngestor.metrics, "finnhub_quote")
+        logServiceMetrics("FinnhubNews", finnhubIngestor.metrics, "finnhub_news")
+        logServiceMetrics("FRED", fredIngestor.metrics, "fred")
+        
+        logger.info("Alphavantage API calls today: {}/{}", 
+            alphavantageApiQuotaService.getCallsMadeToday(),
+            alphavantageApiQuotaService.getQuotaLimit()
+        )
     }
 
-    private fun logServiceMetrics(serviceName: String, metrics: ServiceMetrics) {
+    private fun logServiceMetrics(serviceName: String, metrics: ServiceMetrics, quotaKey: String) {
         val successful = metrics.successfulRequests.get()
         val failed = metrics.failedRequests.get()
         val total = successful + failed
         val successRate = if (total > 0) (successful * 100.0 / total) else 0.0
         val lastSuccess = metrics.lastSuccessfulCollection.get()
         val timeSinceLastSuccess = if (lastSuccess > 0) Instant.now().epochSecond - lastSuccess else -1
+        val apiCalls = metrics.apiQuotaUsage[quotaKey]?.get() ?: 0L
 
-        logger.info("{} Metrics - Success: {}, Failed: {}, Rate: {:.1f}%, Last: {}s ago", 
-            serviceName, successful, failed, successRate, timeSinceLastSuccess)
+        logger.info("{} Metrics - Success: {}, Failed: {}, Rate: {:.1f}%, Last: {}s ago, API Calls: {}", 
+            serviceName, successful, failed, successRate, timeSinceLastSuccess, apiCalls)
     }
 
     @Scheduled(fixedRate = 3600000) // Every hour
     fun resetHourlyMetrics() {
-        finnhubIngestor.metrics.apiQuotaUsage.clear()
-        fredIngestor.metrics.apiQuotaUsage.clear()
-        logger.info("Hourly API usage metrics reset")
+        finnhubIngestor.metrics.apiQuotaUsage.forEach { (_, counter) -> counter.set(0) }
+        fredIngestor.metrics.apiQuotaUsage.forEach { (_, counter) -> counter.set(0) }
+        logger.info("Hourly API usage counts reset for Finnhub & FRED.")
     }
 }

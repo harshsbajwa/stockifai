@@ -1,96 +1,78 @@
 package com.harshsbajwa.stockifai.api.model
 
+import org.springframework.data.cassandra.core.cql.PrimaryKeyType
 import org.springframework.data.cassandra.core.mapping.Column
 import org.springframework.data.cassandra.core.mapping.PrimaryKey
 import org.springframework.data.cassandra.core.mapping.PrimaryKeyClass
 import org.springframework.data.cassandra.core.mapping.PrimaryKeyColumn
-import org.springframework.data.cassandra.core.cql.PrimaryKeyType
 import org.springframework.data.cassandra.core.mapping.Table
+import java.util.UUID
 
-@Table("processed_stocks")
-data class ProcessedStock(
+
+@Table("stock_summaries")
+data class StockSummary(
     @PrimaryKey
-    val primaryKey: StockPrimaryKey,
-    
+    val symbol: String,
+
+    @Column("last_timestamp")
+    val lastTimestamp: Long?,
+
     @Column("current_price")
     val currentPrice: Double,
-    
-    @Column("volume")
-    val volume: Long,
-    
-    @Column("volatility")
-    val volatility: Double,
-    
-    @Column("price_change")
-    val priceChange: Double,
-    
-    @Column("price_change_percent")
-    val priceChangePercent: Double,
-    
-    @Column("volume_average")
-    val volumeAverage: Double,
-    
-    @Column("risk_score")
-    val riskScore: Double,
-    
-    @Column("trend")
-    val trend: String,
-    
-    @Column("support")
-    val support: Double?,
-    
-    @Column("resistance")
-    val resistance: Double?
+
+    @Column("latest_volume")
+    val latestVolume: Long?,
+
+    @Column("latest_volatility")
+    val latestVolatility: Double?,
+
+    @Column("latest_risk_score")
+    val latestRiskScore: Double?,
+
+    @Column("latest_trend")
+    val latestTrend: String?,
+
+    @Column("calculation_date")
+    val calculationDate: String?,
+
+    @Column("price_change_today")
+    val priceChangeToday: Double?,
+
+    @Column("price_change_percent_today")
+    val priceChangePercentToday: Double?
 ) {
     constructor() : this(
-        StockPrimaryKey(), 0.0, 0L, 0.0, 0.0, 0.0, 0.0, 0.0, "", null, null
+        symbol = "",
+        lastTimestamp = 0L,
+        currentPrice = 0.0,
+        latestVolume = 0L,
+        latestVolatility = 0.0,
+        latestRiskScore = 0.0,
+        latestTrend = "NEUTRAL",
+        calculationDate = null,
+        priceChangeToday = 0.0,
+        priceChangePercentToday = 0.0
     )
 }
 
-@PrimaryKeyClass
-data class StockPrimaryKey(
-    @PrimaryKeyColumn(
-        name = "symbol",
-        ordinal = 0,
-        type = PrimaryKeyType.PARTITIONED
-    )
-    val symbol: String = "",
-    
-    @PrimaryKeyColumn(
-        name = "timestamp",
-        ordinal = 1,
-        type = PrimaryKeyType.CLUSTERED
-    )
-    val timestamp: Long = 0L
-)
-
-@Table("economic_indicators")
-data class EconomicIndicatorEntity(
+@Table("economic_indicator_summaries")
+data class EconomicIndicatorSummary(
     @PrimaryKey
-    val primaryKey: IndicatorPrimaryKey,
-    
-    @Column("value")
-    val value: Double,
-    
-    @Column("country")
-    val country: String?
-) {
-    constructor() : this(IndicatorPrimaryKey(), 0.0, null)
-}
+    val indicator: String,
 
-@PrimaryKeyClass
-data class IndicatorPrimaryKey(
-    @PrimaryKeyColumn(
-        name = "indicator",
-        ordinal = 0,
-        type = PrimaryKeyType.PARTITIONED
+    @Column("last_timestamp")
+    val lastTimestamp: Long?,
+
+    @Column("latest_value")
+    val latestValue: Double,
+
+    @Column("observation_date")
+    val observationDate: String?
+) {
+    constructor() : this(
+        indicator = "",
+        lastTimestamp = 0L,
+        latestValue = 0.0,
+        observationDate = null
     )
-    val indicator: String = "",
-    
-    @PrimaryKeyColumn(
-        name = "timestamp", 
-        ordinal = 1,
-        type = PrimaryKeyType.CLUSTERED
-    )
-    val timestamp: Long = 0L
-)
+}

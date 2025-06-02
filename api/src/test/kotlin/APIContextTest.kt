@@ -1,6 +1,6 @@
 package com.harshsbajwa.stockifai.api
 
-import com.harshsbajwa.stockifai.application.Application
+import com.harshsbajwa.stockifai.api.AnalysisApiApplication
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import org.springframework.boot.test.context.SpringBootTest
@@ -17,7 +17,7 @@ import org.testcontainers.utility.DockerImageName
 import java.time.Duration
 
 @Testcontainers
-@SpringBootTest(classes = [Application::class])
+@SpringBootTest(classes = [AnalysisApiApplication::class])
 @ActiveProfiles("test")
 @EnabledIfEnvironmentVariable(named = "DOCKER_AVAILABLE", matches = "true")
 class APIContextTest {
@@ -28,7 +28,7 @@ class APIContextTest {
 
         @Container
         val cassandraContainer =
-            CassandraContainer(DockerImageName.parse("cassandra:5.0.4"))
+            CassandraContainer(DockerImageName.parse("cassandra:4.1.9"))
                 .withExposedPorts(9042)
                 .waitingFor(Wait.forListeningPort())
                 .waitingFor(
@@ -65,23 +65,18 @@ class APIContextTest {
                 "http://${influxDBContainer.host}:${influxDBContainer.getMappedPort(8086)}"
             }
             registry.add("influxdb.token") { "testtoken123!" }
-            registry.add("influxdb.org") { "testorg" }
-            registry.add("influxdb.bucket") { "testbucket" }
+            registry.add("influxdb.database") { "testbucket" }
 
-            // Override properties from docker-compose.yml if they are used by the app directly
             registry.add("INFLUXDB_URL") {
                 "http://${influxDBContainer.host}:${influxDBContainer.getMappedPort(8086)}"
             }
             registry.add("INFLUXDB_TOKEN") { "testtoken123!" }
-            registry.add("INFLUXDB_ORG") { "testorg" }
-            registry.add("INFLUXDB_BUCKET") { "testbucket" }
+            registry.add("INFLUXDB_DATABASE") { "testbucket" }
         }
     }
 
     @Test
     fun contextLoads() {
-        // Verify that the Spring application context can start successfully
-        // and connect to the containerized dependencies.
         println("API Application context loaded successfully with Testcontainers.")
         println("Kafka running at: " + kafkaContainer.bootstrapServers)
         println(

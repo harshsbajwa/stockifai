@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm")
+    kotlin("jvm") version "2.0.21"
     kotlin("plugin.spring") version "2.0.21"
     id("org.springframework.boot") version "3.5.0"
     id("io.spring.dependency-management") version "1.1.7"
@@ -29,15 +29,19 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-cassandra")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
-    // InfluxDB v3 client as specified in the guide
-    implementation("com.influxdb:influxdb3-java:0.8.0")
+    // InfluxDB
+    implementation("com.influxdb:influxdb-client-kotlin:7.3.0")
 
     // JSON processing
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
     // Validation
     implementation("org.springframework.boot:spring-boot-starter-validation")
+
+    // Micrometer Prometheus Registry
+    implementation("io.micrometer:micrometer-registry-prometheus")
 
     // Test dependencies
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
@@ -53,6 +57,7 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers:1.21.0")
     testImplementation("org.testcontainers:junit-jupiter:1.21.0")
     testImplementation("org.testcontainers:cassandra:1.21.0")
+    testImplementation("org.testcontainers:kafka")
 }
 
 tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
@@ -62,4 +67,5 @@ tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    systemProperty("mockito.strictness", "LENIENT")
 }

@@ -21,8 +21,11 @@ COPY stream/src/ ./stream/src/
 RUN chmod +x ./gradlew && ./gradlew :stream:bootJar --no-daemon
 
 # Stage 2: Create the runtime image
-FROM bellsoft/liberica-runtime-container:jre-21-slim-stream-musl
+FROM bellsoft/liberica-runtime-container:jre-21-crac-glibc
 WORKDIR /app
+
+# Install wget for health checks
+RUN apk update && apk add --no-cache wget
 
 COPY --from=builder /app/stream/build/libs/stream.jar app.jar
 

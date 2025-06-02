@@ -5,7 +5,98 @@ import jakarta.validation.constraints.Pattern
 import java.time.Instant
 import java.time.LocalDate
 
-// Risk metrics DTOs
+
+data class StockDataResponse(
+    val symbol: String,
+    val currentPrice: Double,
+    val volume: Long?,
+    val volatility: Double?,
+    val priceChange: Double?,
+    val priceChangePercent: Double?, 
+    val volumeAverage: Double?,
+    val riskScore: Double?,
+    val trend: String?,
+    val support: Double?,
+    val resistance: Double?,
+    val timestamp: Instant
+)
+
+data class StockHistoryResponse(
+    val symbol: String,
+    val data: List<StockDataPoint>,
+    val count: Int,
+    val timeRange: TimeRange
+)
+
+data class StockDataPoint(
+    val timestamp: Instant,
+    val price: Double?,
+    val open: Double?,
+    val high: Double?,
+    val low: Double?,
+    val volume: Long?,
+    val volatility: Double?,
+    val riskScore: Double?,
+    val trend: String?
+)
+
+data class TimeRange(
+    val start: Instant,
+    val end: Instant
+)
+
+data class MetricPoint(
+    val timestamp: Instant,
+    val price: Double?,
+    val open: Double?,
+    val high: Double?,
+    val low: Double?,
+    val volume: Long?,
+    val volatility: Double?,
+    val riskScore: Double?
+)
+
+data class StockMetricsResponse(
+    val symbol: String,
+    val metrics: List<MetricPoint>,
+    val timeRange: TimeRange,
+    val aggregation: String
+)
+
+data class MarketOverviewResponse(
+    val totalStocks: Int,
+    val activeStocks: Int,
+    val averageRiskScore: Double,
+    val highRiskStocks: List<String>,
+    val topMovers: TopMovers,
+    val marketSentiment: String,
+    val lastUpdated: Instant
+)
+
+data class TopMovers(
+    val gainers: List<StockMover>,
+    val losers: List<StockMover>,
+    val mostVolatile: List<StockMover>
+)
+
+data class StockMover(
+    val symbol: String,
+    val currentPrice: Double?,
+    val change: Double?,
+    val changePercent: Double?,
+    val volume: Long?
+)
+
+data class PaginatedResponse<T>(
+    val data: List<T>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+    val hasNext: Boolean,
+    val hasPrevious: Boolean
+)
+
 data class StockRiskResponse(
     val symbol: String,
     val date: LocalDate,
@@ -24,32 +115,32 @@ data class HistoricalVolatilityData(
 )
 
 data class BetaData(
-    val value: Double,
-    val benchmark: String,
-    val lookbackPeriod: String,
-    val calculationDate: LocalDate
+    val value: Double?,
+    val benchmark: String?,
+    val lookbackPeriod: String?,
+    val calculationDate: LocalDate?
 )
 
 data class VaRData(
     val confidence99: Double?,
     val confidence95: Double?,
     val method: String = "Historical Simulation",
-    val lookbackPeriod: String,
-    val calculationDate: LocalDate
+    val lookbackPeriod: String?,
+    val calculationDate: LocalDate?
 )
 
 data class CVaRData(
     val confidence99: Double?,
     val confidence95: Double?,
     val method: String = "Historical Simulation",
-    val lookbackPeriod: String,
-    val calculationDate: LocalDate
+    val lookbackPeriod: String?,
+    val calculationDate: LocalDate?
 )
 
 data class VolatilityResponse(
     val symbol: String,
-    val periods: Map<String, Double>, // e.g., "30d" -> 0.25
-    val endDate: LocalDate,
+    val periods: Map<String, Double?>,
+    val endDate: LocalDate?,
     val metadata: InstrumentMetadata?
 )
 
@@ -60,16 +151,16 @@ data class EconomicIndicatorResponse(
 )
 
 data class EconomicObservation(
-    val date: LocalDate,
-    val value: Double,
-    val realTimeStart: LocalDate,
-    val realTimeEnd: LocalDate
+    val date: LocalDate?,
+    val value: Double?,
+    val realTimeStart: LocalDate?,
+    val realTimeEnd: LocalDate?
 )
 
 data class MarketIndexResponse(
     val indexSymbol: String,
-    val riskMetrics: StockRiskResponse,
-    val volatilityMetrics: VolatilityResponse
+    val riskMetrics: StockRiskResponse?,
+    val volatilityMetrics: VolatilityResponse?
 )
 
 data class ApiResponse<T>(
@@ -99,7 +190,6 @@ data class EconomicIndicatorMetadata(
     val source: String?
 )
 
-// Validation DTOs for request parameters
 data class RiskQueryParams(
     @field:Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}", message = "Date must be in YYYY-MM-DD format")
     val date: String? = null,
@@ -112,7 +202,7 @@ data class RiskQueryParams(
 )
 
 data class VolatilityQueryParams(
-    val periods: String = "30d,60d,90d", // Comma-separated
+    val periods: String = "30d,60d,90d",
     
     @field:Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}", message = "End date must be in YYYY-MM-DD format")
     val endDate: String? = null
@@ -126,4 +216,20 @@ data class EconomicQueryParams(
     val endDate: String? = null,
     
     val limit: Int = 100
+)
+
+data class NewsItem(
+    val id: String,
+    val headline: String,
+    val summary: String,
+    val sentiment: String,
+    val timestamp: Instant,
+    val source: String?,
+    val relatedSymbol: String?
+)
+
+data class EconomicDataPoint(
+    val seriesId: String,
+    val value: Double,
+    val timestamp: Instant
 )

@@ -20,3 +20,23 @@ groups:
         annotations:
           summary: "High Kafka consumer lag"
           description: "Kafka consumer lag is {{ $value }} messages for topic {{ $labels.topic }}"
+
+      - alert: SparkStreamingJobDown
+        expr: absent(up{job="spark"}) == 1
+        for: 2m
+        labels:
+          severity: critical
+          service: spark
+        annotations:
+          summary: "Spark streaming job is down"
+          description: "Spark streaming job has been down for more than 2 minutes"
+
+      - alert: HighDataQualityIssues
+        expr: rate(invalid_records_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: data-quality
+        annotations:
+          summary: "High rate of invalid records detected"
+          description: "Invalid record rate is {{ $value }} per second"

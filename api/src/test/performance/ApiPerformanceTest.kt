@@ -1,6 +1,6 @@
 package com.harshsbajwa.stockifai.api.performance
 
-import com.harshsbajwa.stockifai.application.Application
+import com.harshsbajwa.stockifai.api.AnalysisApiApplication
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
 
 @Testcontainers
 @SpringBootTest(
-    classes = [Application::class],
+    classes = [AnalysisApiApplication::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
 )
 @ActiveProfiles("test")
@@ -42,7 +42,7 @@ class ApiPerformanceTest {
 
         @Container
         val cassandraContainer = CassandraContainer(
-            DockerImageName.parse("cassandra:5.0.4")
+            DockerImageName.parse("cassandra:4.1.9")
         )
 
         @Container
@@ -104,7 +104,6 @@ class ApiPerformanceTest {
         println("Max response time: ${maxTime}ms")
         println("95th percentile: ${allTimes.sorted()[(allTimes.size * 0.95).toInt()]}ms")
 
-        // Assert reasonable performance
         assertTrue(averageTime < 500, "Average response time should be under 500ms")
         assertTrue(maxTime < 2000, "Max response time should be under 2000ms")
     }

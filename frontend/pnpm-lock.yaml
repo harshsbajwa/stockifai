@@ -11,12 +11,6 @@ importers:
       '@types/node':
         specifier: ^16.18.68
         version: 16.18.126
-      '@types/react':
-        specifier: ^18.2.45
-        version: 18.3.22
-      '@types/react-dom':
-        specifier: ^18.2.18
-        version: 18.3.7(@types/react@18.3.22)
       autoprefixer:
         specifier: ^10.4.16
         version: 10.4.21(postcss@8.5.3)
@@ -63,6 +57,12 @@ importers:
       '@types/jest':
         specifier: ^29.5.8
         version: 29.5.14
+      '@types/react':
+        specifier: ^18.3.22
+        version: 18.3.22
+      '@types/react-dom':
+        specifier: ^18.3.7
+        version: 18.3.7(@types/react@18.3.22)
       prettier:
         specifier: ^3.1.0
         version: 3.5.3

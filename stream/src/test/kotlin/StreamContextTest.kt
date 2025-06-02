@@ -22,7 +22,6 @@ class StreamContextTest {
 
     @Test
     fun contextLoads() {
-        // Test verifies that the Spring application context can start successfully
         println("Stream application context loaded successfully.")
     }
 }

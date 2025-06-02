@@ -1,5 +1,6 @@
 package com.harshsbajwa.stockifai.processing
 
+import org.apache.avro.util.Utf8
 import com.harshsbajwa.stockifai.avro.finnhub.StockCandle
 import com.harshsbajwa.stockifai.avro.fred.EconomicObservation
 import org.apache.avro.io.BinaryEncoder
@@ -18,6 +19,7 @@ import org.testcontainers.utility.DockerImageName
 import java.io.ByteArrayOutputStream
 import java.time.Instant
 import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 @Testcontainers
 class RiskCalculationEngineIntegrationTest {
@@ -64,47 +66,42 @@ class RiskCalculationEngineIntegrationTest {
     @Test
     fun `should process Avro stock data correctly`() {
         logger.info("Testing Avro stock data processing...")
-        
-        // Create test StockCandle Avro record
+
         val stockCandle = StockCandle.newBuilder()
-            .setSymbol("AAPL")
+            .setSymbol(Utf8("AAPL")) 
             .setOpen(150.0)
             .setHigh(155.0)
             .setLow(149.0)
             .setClose(154.0)
             .setVolume(1000000L)
-            .setTimestamp(Instant.now().toEpochMilli())
+            .setTimestamp(Instant.now())
             .build()
-        
-        // Serialize to Avro bytes
+
         val avroBytes = serializeAvroRecord(stockCandle)
-        
-        // Test parsing
+
         assertNotNull(avroBytes)
         assertTrue(avroBytes.isNotEmpty())
-        
+
         logger.info("Successfully created and serialized Avro StockCandle record")
     }
-    
+
     @Test
     fun `should process Avro economic data correctly`() {
         logger.info("Testing Avro economic data processing...")
-        
-        // Create test EconomicObservation Avro record
+
         val economicObs = EconomicObservation.newBuilder()
-            .setSeriesId("VIXCLS")
-            .setObservationDate("2024-01-15")
-            .setValue("18.75")
-            .setRealTimeStart("2024-01-15")
-            .setRealTimeEnd("2024-01-15")
+            .setSeriesId(Utf8("VIXCLS"))
+            .setObservationDate(Utf8("2024-01-15"))
+            .setValue(Utf8("18.75")) 
+            .setRealTimeStart(Utf8("2024-01-15"))
+            .setRealTimeEnd(Utf8("2024-01-15")) 
             .build()
-        
-        // Serialize to Avro bytes
+
         val avroBytes = serializeAvroRecord(economicObs)
-        
+
         assertNotNull(avroBytes)
         assertTrue(avroBytes.isNotEmpty())
-        
+
         logger.info("Successfully created and serialized Avro EconomicObservation record")
     }
     

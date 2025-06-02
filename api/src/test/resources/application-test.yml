@@ -1,4 +1,7 @@
 spring:
+  task:
+    scheduling:
+      enabled: false
   kafka:
     bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
   data:
@@ -35,9 +38,3 @@ logging:
     com.datastax.oss.driver: WARN
     org.testcontainers: INFO
     root: WARN
-
-# Disable scheduling in tests
-spring:
-  task:
-    scheduling:
-      enabled: false

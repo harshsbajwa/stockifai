@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} | %-5level | %logger{36} - %msg%n"/>
+        </Console>
+    </Appenders>
+    
+    <Loggers>
+        <Logger name="org.apache.spark" level="INFO"/>
+        <!-- Silence codegen logs -->
+        <Logger name="org.apache.spark.sql.catalyst.expressions.codegen" level="WARN"/>
+        
+        <Logger name="org.apache.kafka" level="WARN"/>
+        <Logger name="com.harshsbajwa.stockifai" level="INFO"/>
+        
+        <Root level="INFO">
+            <AppenderRef ref="Console"/>
+        </Root>
+    </Loggers>
+</Configuration>

@@ -1,41 +1,58 @@
 package com.harshsbajwa.stockifai.api.service
 
 import com.harshsbajwa.stockifai.api.dto.*
+import com.harshsbajwa.stockifai.api.model.InstrumentMetadata as InstrumentMetadataEntity
 import com.harshsbajwa.stockifai.api.repository.InstrumentMetadataRepository
-import com.influxdb.v3.client.InfluxDBClient
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+
 
 @Service
 class VolatilityAnalysisService(
-    private val influxDBClient: InfluxDBClient,
-    private val instrumentRepository: InstrumentMetadataRepository
+    private val instrumentRepository: InstrumentMetadataRepository,
+    private val influxDBService: InfluxDBService
 ) {
     private val logger = LoggerFactory.getLogger(VolatilityAnalysisService::class.java)
 
     fun getVolatilityMetrics(symbol: String, queryParams: VolatilityQueryParams): VolatilityResponse? {
         return try {
             val endDate = queryParams.endDate?.let { LocalDate.parse(it) } ?: LocalDate.now()
-            val periods = queryParams.periods.split(",").map { it.trim() }
+            val requestedPeriods = queryParams.periods.split(",").map { it.trim().lowercase() }
             
-            val volatilityData = mutableMapOf<String, Double>()
-            
-            periods.forEach { period ->
-                val volatility = fetchVolatilityForPeriod(symbol, period, endDate)
-                volatility?.let { volatilityData[period] = it }
+            val volatilityData = mutableMapOf<String, Double?>()
+
+            val maxLookbackDays = requestedPeriods.mapNotNull { periodStr ->
+                when {
+                    periodStr.endsWith("d") -> periodStr.removeSuffix("d").toLongOrNull()
+                    periodStr.endsWith("m") -> (periodStr.removeSuffix("m").toLongOrNull() ?: 1) * 30
+                    periodStr.endsWith("y") -> (periodStr.removeSuffix("y").toLongOrNull() ?: 1) * 365
+                    else -> null
+                }
+            }.maxOrNull() ?: 30
+
+            val volatilityTimeSeries = influxDBService.getStockTimeSeries(symbol, maxLookbackDays * 24, "1h")
+
+            if (volatilityTimeSeries?.metrics?.isNotEmpty() == true) {
+                requestedPeriods.forEach { periodKey ->
+                    volatilityData[periodKey] = volatilityTimeSeries.metrics.lastOrNull()?.volatility
+                }
+            } else {
+                 logger.warn("No volatility time-series data found for {} to fulfill period requests.", symbol)
+                 requestedPeriods.forEach { periodKey -> volatilityData[periodKey] = null }
             }
             
-            // Fetch metadata from Cassandra
-            val metadata = instrumentRepository.findById(symbol)?.let {
-                InstrumentMetadata(
-                    symbol = it.symbol,
-                    name = it.name,
-                    exchange = it.exchange,
-                    currency = it.currency,
-                    sector = it.sector,
-                    industry = it.industry,
-                    description = it.description
+            val metadataEntity: InstrumentMetadataEntity? = instrumentRepository.findById(symbol.uppercase()).orElse(null)
+            val metadataDto = metadataEntity?.let { entity ->
+                com.harshsbajwa.stockifai.api.dto.InstrumentMetadata(
+                    symbol = entity.symbol,
+                    name = entity.name,
+                    exchange = entity.exchange,
+                    currency = entity.currency,
+                    sector = entity.sector,
+                    industry = entity.industry,
+                    description = entity.description
                 )
             }
             
@@ -43,33 +60,10 @@ class VolatilityAnalysisService(
                 symbol = symbol,
                 periods = volatilityData,
                 endDate = endDate,
-                metadata = metadata
+                metadata = metadataDto
             )
         } catch (e: Exception) {
-            logger.error("Error fetching volatility metrics for $symbol", e)
-            null
-        }
-    }
-
-    private fun fetchVolatilityForPeriod(symbol: String, period: String, endDate: LocalDate): Double? {
-        val metricName = "HV_${period.uppercase()}"
-        val query = """
-            SELECT time, value 
-            FROM calculated_risk_metrics 
-            WHERE symbol = '$symbol' 
-              AND metric_name = '$metricName' 
-              AND time <= '$endDate' 
-            ORDER BY time DESC 
-            LIMIT 1
-        """.trimIndent()
-
-        return try {
-            val result = influxDBClient.query(query)
-            // Process result and extract volatility value
-            // This is a simplified implementation
-            0.25 // Extract actual value from query result
-        } catch (e: Exception) {
-            logger.error("Error fetching volatility for $symbol, period $period", e)
+            logger.error("Error fetching volatility metrics for $symbol: ${e.message}", e)
             null
         }
     }

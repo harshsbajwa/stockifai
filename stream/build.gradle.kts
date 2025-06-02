@@ -8,6 +8,14 @@ plugins {
 
 description = "Data ingestion services for Finnhub and FRED APIs"
 
+repositories {
+    mavenCentral()
+    // Confluent repository for Kafka dependencies
+    maven {
+        url = uri("https://packages.confluent.io/maven/")
+    }
+}
+
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -21,7 +29,7 @@ dependencies {
     
     // Avro dependencies
     implementation("org.apache.avro:avro:1.11.3")
-    implementation("io.confluent:kafka-avro-serializer:7.5.0")
+    implementation("io.confluent:kafka-avro-serializer:7.9.1")
     
     // For @EnableRetry support
     implementation("org.springframework:spring-aspects")
@@ -41,11 +49,31 @@ dependencies {
     testImplementation("org.mockito:mockito-inline:5.2.0")
 }
 
+// Configure Avro code generation
 avro {
-    createSetters = false
-    stringType = "String"
-    outputCharacterEncoding = "UTF-8"
-    enableDecimalLogicalType = true
+    isCreateSetters.set(false)
+    stringType.set("Utf8")
+    outputCharacterEncoding.set("UTF-8")
+    isEnableDecimalLogicalType.set(true)
+}
+tasks.configureEach {
+    if (name.contains("ktlint", ignoreCase = true) || name.contains("KtLint")) {
+        dependsOn("generateAvroJava")
+        dependsOn("generateTestAvroJava")
+    }
+}
+
+tasks.whenTaskAdded {
+    if (name.startsWith("runKtlintCheckOver") || name.startsWith("runKtlintFormatOver")) {
+        dependsOn("generateAvroJava", "generateTestAvroJava")
+    }
+}
+
+ktlint {
+    filter {
+        exclude("**/generated/**")
+        exclude("**/build/generated/**")
+    }
 }
 
 tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
@@ -56,4 +84,14 @@ tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
 tasks.withType<Test> {
     useJUnitPlatform()
     jvmArgs("-XX:+EnableDynamicAgentLoading")
+}
+
+afterEvaluate {
+    tasks.findByName("runKtlintCheckOverTestSourceSet")?.let { ktlintTask ->
+        ktlintTask.dependsOn("generateTestAvroJava")
+    }
+    
+    tasks.findByName("runKtlintCheckOverMainSourceSet")?.let { ktlintTask ->
+        ktlintTask.dependsOn("generateAvroJava")
+    }
 }

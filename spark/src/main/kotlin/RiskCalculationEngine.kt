@@ -1,78 +1,94 @@
-@file:Suppress("MagicNumber")
-
 package com.harshsbajwa.stockifai.processing
 
-import com.harshsbajwa.stockifai.avro.finnhub.MarketNews
-import com.harshsbajwa.stockifai.avro.finnhub.StockCandle
-import com.harshsbajwa.stockifai.avro.fred.EconomicObservation
 import com.datastax.oss.driver.api.core.CqlSession
-import com.datastax.oss.driver.api.core.cql.PreparedStatement
-import com.influxdb.v3.client.InfluxDBClient
-import com.influxdb.v3.client.Point
+import com.datastax.oss.driver.api.core.CqlSessionBuilder
+import com.influxdb.client.InfluxDBClient
+import com.influxdb.client.InfluxDBClientFactory
+import com.influxdb.client.domain.WritePrecision
+import com.influxdb.client.write.Point
+import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
+import io.confluent.kafka.serializers.KafkaAvroDeserializer
+import org.apache.avro.generic.GenericRecord
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.*
+import org.apache.spark.api.java.function.VoidFunction2
+import org.apache.spark.sql.Dataset
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.avro.functions.from_avro
-import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.functions.*
+import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
+import org.apache.spark.sql.expressions.UserDefinedFunction
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.functions.udf
 import org.apache.spark.sql.streaming.StreamingQuery
 import org.apache.spark.sql.streaming.Trigger
-import org.apache.spark.sql.types.DataTypes
+import org.apache.spark.sql.types.*
+import org.apache.spark.sql.api.java.UDF1
 import org.slf4j.LoggerFactory
-import java.time.Duration
+import java.sql.Timestamp
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.UUID
 import java.util.concurrent.TimeUnit
-import kotlin.math.*
 import kotlin.system.exitProcess
 
-// Risk Calculation Data Models
 data class CalculatedRiskMetrics(
     val symbol: String,
     val timestamp: Long,
     val close: Double,
     val volume: Long,
-    val historicalVolatility30d: Double?,
-    val beta: Double?,
-    val var99: Double?,
-    val cvar99: Double?,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val priceChange: Double?,
+    val priceChangePercent: Double?,
+    val volatility: Double?,
+    val riskScore: Double?,
+    val trend: String = "NEUTRAL",
+    val volumeAverage: Double?,
     val calculationDate: String
 )
 
 data class ProcessedNews(
-    val symbol: String?,
+    val id: String = UUID.randomUUID().toString(),
     val headline: String,
     val summary: String,
-    val sentiment: String, // POSITIVE, NEGATIVE, NEUTRAL
-    val timestamp: Long
+    val sentiment: String,
+    val timestamp: Long,
+    val source: String?,
+    val relatedSymbol: String?
 )
 
 data class ProcessedEconomicData(
     val seriesId: String,
     val value: Double,
-    val date: String,
-    val timestamp: Long
+    val observationDate: String,
+    val processingTimestamp: Long
 )
 
 object RiskCalculationEngine {
     private val logger = LoggerFactory.getLogger(RiskCalculationEngine::class.java)
-
-    // Database clients
     private lateinit var influxDBClient: InfluxDBClient
     private lateinit var cassandraSession: CqlSession
 
-    // Prepared statements
-    private lateinit var riskMetricsInsertStatement: PreparedStatement
-    private lateinit var economicDataInsertStatement: PreparedStatement
+    // Schemas for Avro deserialization
+    private val stockCandleStructType = StructType(arrayOf(
+        StructField("symbol", DataTypes.StringType, true, Metadata.empty()),
+        StructField("open", DataTypes.DoubleType, true, Metadata.empty()),
+        StructField("high", DataTypes.DoubleType, true, Metadata.empty()),
+        StructField("low", DataTypes.DoubleType, true, Metadata.empty()),
+        StructField("close", DataTypes.DoubleType, true, Metadata.empty()),
+        StructField("volume", DataTypes.LongType, true, Metadata.empty()),
+        StructField("timestamp", DataTypes.TimestampType, true, Metadata.empty())
+    ))
 
     @JvmStatic
     fun main(args: Array<String>) {
         logger.info("Initializing StockifAI Risk Calculation Engine...")
-
         try {
             initializeDatabaseConnections()
             val spark = createSparkSession()
             val queries = startStreamingQueries(spark)
-
-            // Wait for termination
             queries.forEach { it.awaitTermination() }
         } catch (e: Exception) {
             logger.error("Failed to start Risk Calculation Engine", e)
@@ -83,90 +99,157 @@ object RiskCalculationEngine {
     }
 
     private fun createSparkSession(): SparkSession {
+        val sparkVersion = System.getenv("SPARK_VERSION") ?: "3.5.5"
         val sparkConf = SparkConf()
             .setAppName("StockifAI-RiskCalculationEngine")
             .set("spark.sql.adaptive.enabled", "true")
             .set("spark.sql.adaptive.coalescePartitions.enabled", "true")
             .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
             .set("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true")
-            .set("spark.sql.streaming.checkpointLocation", "/tmp/spark-checkpoint")
-            .set("spark.sql.execution.arrow.pyspark.enabled", "true")
-            .apply {
-                if (!contains("spark.master")) {
-                    setMaster("local[*]")
-                }
-            }
+            .set("spark.sql.streaming.checkpointLocation", "/tmp/spark-checkpoint-risk-engine")
+            .set("spark.sql.avro.datetimeRebaseModeInRead", "CORRECTED")
+            .set("spark.sql.avro.datetimeRebaseModeInWrite", "CORRECTED")
 
-        return SparkSession.builder().config(sparkConf).getOrCreate()
+        if (sparkConf.get("spark.master", null) == null) {
+            sparkConf.setMaster("local[*]")
+        }
+
+        return SparkSession.builder()
+            .config(sparkConf)
+            .config("spark.jars.packages", "org.apache.spark:spark-avro_2.12:$sparkVersion")
+            .getOrCreate()
     }
 
     private fun initializeDatabaseConnections() {
-        // Initialize InfluxDB client (v3)
-        val influxUrl = System.getenv("INFLUXDB_URL") ?: "http://localhost:8086"
-        val influxToken = System.getenv("INFLUXDB_TOKEN") ?: "your-token"
-        val influxDatabase = System.getenv("INFLUXDB_DATABASE") ?: "stockifai"
+        // InfluxDB Cloud
+        val influxUrl = System.getenv("INFLUXDB_URL") ?: "https://us-east-1-1.aws.cloud2.influxdata.com"
+        val influxToken = System.getenv("INFLUXDB_TOKEN")
+        val influxOrg = System.getenv("INFLUXDB_ORG")
+        val defaultInfluxBucket = System.getenv("INFLUXDB_DEFAULT_BUCKET") ?: "stockdata"
 
-        influxDBClient = InfluxDBClient.getInstance(influxUrl, influxToken, influxDatabase)
-        logger.info("InfluxDB client v3 initialized: $influxUrl, Database: $influxDatabase")
+        logger.info("Initializing InfluxDB Cloud client: URL=$influxUrl, Org=$influxOrg")
+        influxDBClient = InfluxDBClientFactory.create(influxUrl, influxToken.toCharArray(), influxOrg, defaultInfluxBucket)
+        try {
+            logger.info("InfluxDB client initialized. Ping: ${influxDBClient.ping()}")
+        } catch (e: Exception) {
+            logger.error("Failed to check InfluxDB health: ${e.message}", e)
+            exitProcess(1)
+        }
 
-        // Initialize Cassandra session
-        val cassandraHost = System.getenv("CASSANDRA_HOST") ?: "localhost"
-        val cassandraPort = System.getenv("CASSANDRA_PORT")?.toInt() ?: 9042
-        val cassandraKeyspace = System.getenv("CASSANDRA_KEYSPACE") ?: "finrisk_reference_data"
+        // Datastax AstraDB
+        val astraSecureBundlePath = System.getenv("ASTRA_SECURE_CONNECT_BUNDLE_PATH")
+        val astraClientId = System.getenv("ASTRA_CLIENT_ID")
+        val astraClientSecret = System.getenv("ASTRA_CLIENT_SECRET")
+        val keyspaceName = System.getenv("CASSANDRA_KEYSPACE") ?: "stock_keyspace"
+        val astraLocalDatacenter = System.getenv("ASTRA_LOCAL_DATACENTER")
 
-        cassandraSession = CqlSession.builder()
-            .addContactPoint(java.net.InetSocketAddress(cassandraHost, cassandraPort))
-            .withLocalDatacenter("datacenter1")
-            .withKeyspace(cassandraKeyspace)
-            .build()
+        if (astraSecureBundlePath.isNullOrBlank() || astraClientId.isNullOrBlank() || astraClientSecret.isNullOrBlank()) {
+            logger.error("AstraDB connection details (ASTRA_SECURE_CONNECT_BUNDLE_PATH, ASTRA_CLIENT_ID, ASTRA_CLIENT_SECRET) are not fully provided. Exiting.")
+            exitProcess(1)
+        }
+        logger.info("Initializing AstraDB client: Keyspace=$keyspaceName, BundlePath=$astraSecureBundlePath")
 
-        createCassandraSchema()
-        prepareStatements()
+        val sessionBuilder: CqlSessionBuilder = CqlSession.builder()
+            .withCloudSecureConnectBundle(java.nio.file.Paths.get(astraSecureBundlePath))
+            .withAuthCredentials(astraClientId, astraClientSecret)
+            .withKeyspace(keyspaceName)
 
-        logger.info("Cassandra session initialized: $cassandraHost:$cassandraPort, Keyspace: $cassandraKeyspace")
+        astraLocalDatacenter?.let { if (it.isNotBlank()) sessionBuilder.withLocalDatacenter(it) }
+        cassandraSession = sessionBuilder.build()
+
+        createCassandraTables()
+        logger.info("AstraDB session initialized and tables ensured for keyspace $keyspaceName.")
     }
 
-    private fun createCassandraSchema() {
-        val keyspaceName = System.getenv("CASSANDRA_KEYSPACE") ?: "finrisk_reference_data"
-
-        // Create keyspace
+    private fun createCassandraTables() {
+        logger.info("Ensuring Cassandra (AstraDB) tables exist...")
         cassandraSession.execute("""
-            CREATE KEYSPACE IF NOT EXISTS $keyspaceName
-            WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
-        """)
-
-        // Create instrument metadata table
-        cassandraSession.execute("""
-            CREATE TABLE IF NOT EXISTS $keyspaceName.instrument_metadata (
+            CREATE TABLE IF NOT EXISTS stock_summaries (
                 symbol text PRIMARY KEY,
-                name text,
-                exchange text,
-                currency text,
-                sector text,
-                industry text,
-                description text,
-                last_updated timestamp
+                last_timestamp bigint,
+                current_price double,
+                latest_volume bigint,
+                latest_volatility double,
+                latest_risk_score double,
+                latest_trend text,
+                calculation_date text,
+                price_change_today double,
+                price_change_percent_today double
             )
         """)
+        logger.info("Table 'stock_summaries' ensured.")
 
-        // Create economic indicator metadata table
         cassandraSession.execute("""
-            CREATE TABLE IF NOT EXISTS $keyspaceName.economic_indicator_metadata (
-                series_id text PRIMARY KEY,
-                title text,
-                frequency text,
-                units text,
-                notes text,
-                source text,
-                last_updated timestamp
+            CREATE TABLE IF NOT EXISTS economic_indicator_summaries (
+                indicator text PRIMARY KEY,
+                last_timestamp bigint,
+                latest_value double,
+                observation_date text
             )
         """)
+        logger.info("Table 'economic_indicator_summaries' ensured.")
 
-        logger.info("Cassandra schema created/verified for keyspace $keyspaceName")
+        cassandraSession.execute("""
+            CREATE TABLE IF NOT EXISTS market_news (
+                id uuid,
+                date_bucket text,
+                timestamp bigint,
+                headline text,
+                summary text,
+                sentiment text,
+                source text,
+                related_symbol text,
+                PRIMARY KEY (date_bucket, timestamp, id)
+            ) WITH CLUSTERING ORDER BY (timestamp DESC, id ASC)
+        """)
+        logger.info("Table 'market_news' ensured.")
+        logger.info("AstraDB tables schema check complete.")
     }
 
-    private fun prepareStatements() {
-        // For now, we're primarily using InfluxDB for time-series data
+    class AvroDeserializeUDF(private val schemaRegistryUrl: String, private val topicName: String) : UDF1<ByteArray?, Row?> {
+        @Transient private var schemaRegistryClient: CachedSchemaRegistryClient? = null
+        @Transient private var avroDeserializer: KafkaAvroDeserializer? = null
+
+        private fun getDeserializer(): KafkaAvroDeserializer {
+            if (avroDeserializer == null) {
+                if (schemaRegistryClient == null) {
+                    schemaRegistryClient = CachedSchemaRegistryClient(schemaRegistryUrl, 100)
+                }
+                avroDeserializer = KafkaAvroDeserializer(schemaRegistryClient)
+            }
+            return avroDeserializer!!
+        }
+
+        override fun call(avroBytes: ByteArray?): Row? {
+            if (avroBytes == null) return null
+            return try {
+                val genericRecord = getDeserializer().deserialize(topicName, avroBytes) as? GenericRecord
+                genericRecord?.let {
+                    val symbol = it.get("symbol")?.toString()
+                    val open = it.get("open") as? Double
+                    val high = it.get("high") as? Double
+                    val low = it.get("low") as? Double
+                    val close = it.get("close") as? Double
+                    val volume = it.get("volume") as? Long
+                    val timestampMillis = it.get("timestamp") as? Long
+                    val sqlTimestamp = timestampMillis?.let { ts -> Timestamp(ts) }
+
+                    if (listOf(symbol, open, high, low, close, volume, sqlTimestamp).all { fld -> fld != null }) {
+                        GenericRowWithSchema(arrayOf(symbol, open, high, low, close, volume, sqlTimestamp), stockCandleStructType)
+                    } else {
+                        logger.warn("Null field found in Avro record for topic $topicName: Symbol=$symbol, O=$open, H=$high, L=$low, C=$close, V=$volume, TS=$timestampMillis")
+                        null
+                    }
+                }
+            } catch (e: Exception) {
+                logger.error("Failed to deserialize Avro message for topic $topicName: ${e.message}", e)
+                null
+            }
+        }
+    }
+
+    private fun createAvroDeserializerUDF(schemaRegistryUrl: String, topic: String): UserDefinedFunction {
+        return udf(AvroDeserializeUDF(schemaRegistryUrl, topic), stockCandleStructType)
     }
 
     private fun startStreamingQueries(spark: SparkSession): List<StreamingQuery> {
@@ -175,225 +258,113 @@ object RiskCalculationEngine {
         
         val queries = mutableListOf<StreamingQuery>()
 
-        // OHLCV Data Processing Query
-        val ohlcvQuery = processOHLCVData(spark, kafkaBootstrapServers, schemaRegistryUrl)
-        queries.add(ohlcvQuery)
+        try {
+            val ohlcvQuery = processOHLCVData(spark, kafkaBootstrapServers, schemaRegistryUrl)
+            queries.add(ohlcvQuery)
+            logger.info("Successfully started OHLCV processing query.")
+        } catch (e: Exception) {
+            logger.error("Failed to start OHLCV processing query", e)
+        }
 
-        // Market News Processing Query
-        val newsQuery = processMarketNews(spark, kafkaBootstrapServers, schemaRegistryUrl)
-        queries.add(newsQuery)
+        try {
+            val newsQuery = processMarketNews(spark, kafkaBootstrapServers, schemaRegistryUrl)
+            queries.add(newsQuery)
+            logger.info("Successfully started News processing query.")
+        } catch (e: Exception) {
+            logger.error("Failed to start News processing query", e)
+        }
 
-        // Economic Data Processing Query
-        val economicQuery = processEconomicData(spark, kafkaBootstrapServers, schemaRegistryUrl)
-        queries.add(economicQuery)
-
-        logger.info("Started ${queries.size} streaming queries")
+        try {
+            val economicQuery = processEconomicData(spark, kafkaBootstrapServers, schemaRegistryUrl)
+            queries.add(economicQuery)
+            logger.info("Successfully started Economic Data processing query.")
+        } catch (e: Exception) {
+            logger.error("Failed to start Economic Data processing query", e)
+        }
+        logger.info("Started ${queries.size} streaming queries.")
         return queries
     }
 
     private fun processOHLCVData(spark: SparkSession, kafkaBootstrapServers: String, schemaRegistryUrl: String): StreamingQuery {
-        // Read from Kafka
         val ohlcvRawStream = spark.readStream()
             .format("kafka")
             .option("kafka.bootstrap.servers", kafkaBootstrapServers)
             .option("subscribe", "finnhub-ohlcv-data")
-            .option("startingOffsets", "latest")
+            .option("startingOffsets", "earliest")
             .option("failOnDataLoss", "false")
             .load()
 
-        // Schema for StockCandle Avro
-        val stockCandleSchema = """{
-            "type": "record",
-            "name": "StockCandle",
-            "namespace": "com.harshsbajwa.stockifai.avro.finnhub",
-            "fields": [
-                {"name": "symbol", "type": "string"},
-                {"name": "open", "type": "double"},
-                {"name": "high", "type": "double"},
-                {"name": "low", "type": "double"},
-                {"name": "close", "type": "double"},
-                {"name": "volume", "type": "long"},
-                {"name": "timestamp", "type": {"type": "long", "logicalType": "timestamp-millis"}}
-            ]
-        }"""
+        val avroDeserUDF = createAvroDeserializerUDF(schemaRegistryUrl, "finnhub-ohlcv-data")
 
-        val ohlcvStream = ohlcvRawStream
-            .select(from_avro(col("value"), stockCandleSchema).alias("data"))
-            .select("data.*")
-            .withColumn("timestamp", (col("timestamp") / 1000).cast(DataTypes.TimestampType))
-            .withWatermark("timestamp", "10 minutes")
+        val deserializedStream = ohlcvRawStream
+            .select(col("value"), col("timestamp").alias("kafka_ingest_time"))
+            .filter(col("value").isNotNull)
+            .withColumn("deserialized_struct", avroDeserUDF.apply(col("value")))
+            .filter(col("deserialized_struct").isNotNull)
+            .select("deserialized_struct.*")
 
-        // Calculate daily returns
-        val windowSpec = Window.partitionBy("symbol").orderBy("timestamp")
-        val ohlcvWithReturns = ohlcvStream
-            .withColumn("prev_close", lag("close", 1).over(windowSpec))
-            .filter(col("prev_close").isNotNull)
-            .withColumn("daily_return", log(col("close") / col("prev_close")))
-
-        // For Beta calculation, we need market index data (SPY)
-        val marketIndexStream = ohlcvWithReturns
-            .filter(col("symbol") === "SPY")
-            .select(col("timestamp"), col("daily_return").alias("market_return"))
-            .withWatermark("timestamp", "10 minutes")
-
-        // Join stock data with market data for Beta calculation
-        val joinedStreamForBeta = ohlcvWithReturns
-            .filter(col("symbol") =!= "SPY")
-            .join(
-                marketIndexStream,
-                ohlcvWithReturns.col("timestamp") === marketIndexStream.col("timestamp"),
-                "inner"
+        val ohlcvStream = deserializedStream
+            .filter(
+                col("symbol").isNotNull.and(col("symbol").notEqual(""))
+                .and(col("close").isNotNull.and(col("close").gt(0)))
+                .and(col("open").isNotNull.and(col("open").gt(0)))
+                .and(col("high").isNotNull.and(col("high").gt(0)))
+                .and(col("low").isNotNull.and(col("low").gt(0)))
+                .and(col("high").geq(col("low")))
+                .and(col("timestamp").isNotNull)
             )
+            .withWatermark("timestamp", "10 minutes")
 
-        // Calculate risk metrics
-        val riskMetricsStream = calculateRiskMetrics(joinedStreamForBeta)
-
-        return riskMetricsStream.writeStream()
-            .foreachBatch { (batchDF: Dataset[Row], batchId: Long) =>
+        return ohlcvStream.writeStream()
+            .foreachBatch(VoidFunction2 { batchDF: Dataset<Row>, batchId: Long ->
                 if (!batchDF.isEmpty) {
-                    logger.info("Processing OHLCV batch $batchId with ${batchDF.count()} records")
-                    
-                    batchDF.collect().forEach { row =>
-                        try {
-                            val metrics = CalculatedRiskMetrics(
-                                symbol = row.getAs[String]("symbol"),
-                                timestamp = row.getAs[java.sql.Timestamp]("timestamp").getTime,
-                                close = row.getAs[Double]("close"),
-                                volume = row.getAs[Long]("volume"),
-                                historicalVolatility30d = Option(row.getAs[Double]("hv_30d")).getOrElse(null),
-                                beta = Option(row.getAs[Double]("beta")).getOrElse(null),
-                                var99 = Option(row.getAs[Double]("var_99")).getOrElse(null),
-                                cvar99 = Option(row.getAs[Double]("cvar_99")).getOrElse(null),
-                                calculationDate = java.time.LocalDate.now().toString
-                            )
-                            
-                            writeRiskMetricsToInfluxDB(metrics)
-                            
-                        } catch (e: Exception) {
-                            logger.error("Error processing risk metrics for row: ${e.message}", e)
-                        }
-                    }
+                    logger.info("Processing OHLCV batch $batchId with ${batchDF.count()} records.")
+                    processOHLCVBatch(batchDF)
                 }
-            }
+            })
             .trigger(Trigger.ProcessingTime(30, TimeUnit.SECONDS))
+            .option("checkpointLocation", "/tmp/spark-checkpoint-ohlcv")
+            .queryName("OHLCVProcessingStream")
             .start()
-    }
-
-    private fun calculateRiskMetrics(joinedStream: Dataset[Row]): Dataset[Row] {
-        // Historical Volatility (30-day)
-        val hv30dWindow = Window.partitionBy("symbol")
-            .orderBy(col("timestamp").cast("long"))
-            .rowsBetween(-29, 0)
-
-        val withHV = joinedStream
-            .withColumn("stddev_30d_returns", stddev_pop(col("daily_return")).over(hv30dWindow))
-            .withColumn("hv_30d", col("stddev_30d_returns") * sqrt(lit(252.0)))
-
-        // Beta calculation (using covariance and variance)
-        val betaWindow = Window.partitionBy("symbol")
-            .orderBy(col("timestamp").cast("long"))
-            .rowsBetween(-251, 0) // 1 year
-
-        val withBeta = withHV
-            .withColumn("covar_stock_market", covar_pop(col("daily_return"), col("market_return")).over(betaWindow))
-            .withColumn("var_market", var_pop(col("market_return")).over(betaWindow))
-            .withColumn("beta", 
-                when(col("var_market") =!= 0.0, col("covar_stock_market") / col("var_market"))
-                .otherwise(null)
-            )
-
-        // VaR and CVaR using UDFs (simplified approach)
-        val calculateVaRUDF = udf((returns: Seq[Double], confidenceLevel: Double) => {
-            if (returns == null || returns.isEmpty) null
-            else {
-                val sortedReturns = returns.filterNot(_.isNaN).sorted
-                if (sortedReturns.isEmpty) null
-                else {
-                    val index = (sortedReturns.length * (1.0 - confidenceLevel)).toInt
-                    if (index < sortedReturns.length) sortedReturns(index) else null
-                }
-            }
-        })
-
-        val calculateCVaRUDF = udf((returns: Seq[Double], vaR: Double) => {
-            if (returns == null || vaR == null) null
-            else {
-                val tailLosses = returns.filterNot(_.isNaN).filter(_ < vaR)
-                if (tailLosses.isEmpty) null else tailLosses.sum / tailLosses.length
-            }
-        })
-
-        val varCvarWindow = Window.partitionBy("symbol")
-            .orderBy("timestamp")
-            .rowsBetween(-251, 0) // 1 year for VaR calculation
-
-        val withVaRCVaR = withBeta
-            .withColumn("historical_returns_window", collect_list("daily_return").over(varCvarWindow))
-            .filter(size(col("historical_returns_window")) >= 252)
-            .withColumn("var_99", calculateVaRUDF(col("historical_returns_window"), lit(0.99)))
-            .withColumn("cvar_99", calculateCVaRUDF(col("historical_returns_window"), col("var_99")))
-
-        return withVaRCVaR
     }
 
     private fun processMarketNews(spark: SparkSession, kafkaBootstrapServers: String, schemaRegistryUrl: String): StreamingQuery {
         val newsRawStream = spark.readStream()
             .format("kafka")
             .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-            .option("subscribe", "finnhub-market-news-data,finnhub-company-news-data")
+            .option("subscribe", "finnhub-market-news-data")
             .option("startingOffsets", "latest")
             .option("failOnDataLoss", "false")
             .load()
 
-        val marketNewsSchema = """{
-            "type": "record",
-            "name": "MarketNews",
-            "namespace": "com.harshsbajwa.stockifai.avro.finnhub",
-            "fields": [
-                {"name": "category", "type": "string"},
-                {"name": "datetime", "type": {"type": "long", "logicalType": "timestamp-millis"}},
-                {"name": "headline", "type": "string"},
-                {"name": "id", "type": "long"},
-                {"name": "image", "type": ["null", "string"], "default": null},
-                {"name": "related", "type": ["null", "string"], "default": null},
-                {"name": "source", "type": "string"},
-                {"name": "summary", "type": "string"},
-                {"name": "url", "type": "string"}
-            ]
-        }"""
-
         val newsStream = newsRawStream
-            .select(from_avro(col("value"), marketNewsSchema).alias("data"))
+            .filter(col("value").isNotNull)
+            .select(
+                from_avro(
+                    col("value"), 
+                    getMarketNewsSchemaString(),
+                    mapOf("mode" to "PERMISSIVE", "columnNameOfCorruptRecord" to "_corrupt_record")
+                ).alias("data")
+            )
             .select("data.*")
-            .withColumn("timestamp", (col("datetime") / 1000).cast(DataTypes.TimestampType))
+            .filter(col("_corrupt_record").isNull)
+            .filter(col("headline").isNotNull.and(col("summary").isNotNull).and(col("datetime").isNotNull))
+            .withColumn("event_timestamp", (col("datetime").divide(1000)).cast(DataTypes.TimestampType))
+            .withWatermark("event_timestamp", "30 minutes")
 
         return newsStream.writeStream()
-            .foreachBatch { (batchDF: Dataset[Row], batchId: Long) =>
+            .foreachBatch(VoidFunction2 { batchDF: Dataset<Row>, batchId: Long ->
                 if (!batchDF.isEmpty) {
-                    logger.info("Processing news batch $batchId with ${batchDF.count()} records")
-                    
-                    batchDF.collect().forEach { row =>
-                        try {
-                            val processedNews = ProcessedNews(
-                                symbol = Option(row.getAs[String]("related")).getOrElse(null),
-                                headline = row.getAs[String]("headline"),
-                                summary = row.getAs[String]("summary"),
-                                sentiment = analyzeSentiment(row.getAs[String]("headline"), row.getAs[String]("summary")),
-                                timestamp = row.getAs[java.sql.Timestamp]("timestamp").getTime
-                            )
-                            
-                            writeNewsToInfluxDB(processedNews)
-                            
-                        } catch (e: Exception) {
-                            logger.error("Error processing news for row: ${e.message}", e)
-                        }
-                    }
+                    logger.info("Processing News batch $batchId with ${batchDF.count()} records.")
+                    processNewsBatch(batchDF)
                 }
-            }
-            .trigger(Trigger.ProcessingTime(60, TimeUnit.SECONDS))
+            })
+            .trigger(Trigger.ProcessingTime(1, TimeUnit.MINUTES))
+            .option("checkpointLocation", "/tmp/spark-checkpoint-news")
+            .queryName("NewsProcessingStream")
             .start()
     }
-
+    
     private fun processEconomicData(spark: SparkSession, kafkaBootstrapServers: String, schemaRegistryUrl: String): StreamingQuery {
         val economicRawStream = spark.readStream()
             .format("kafka")
@@ -403,160 +374,336 @@ object RiskCalculationEngine {
             .option("failOnDataLoss", "false")
             .load()
 
-        val economicObservationSchema = """{
-            "type": "record",
-            "name": "EconomicObservation",
-            "namespace": "com.harshsbajwa.stockifai.avro.fred",
-            "fields": [
-                {"name": "seriesId", "type": "string"},
-                {"name": "observationDate", "type": "string"},
-                {"name": "value", "type": "string"},
-                {"name": "realTimeStart", "type": "string"},
-                {"name": "realTimeEnd", "type": "string"}
-            ]
-        }"""
-
         val economicStream = economicRawStream
-            .select(from_avro(col("value"), economicObservationSchema).alias("data"))
-            .select("data.*")
-            .withColumn("observationDate", to_date(col("observationDate"), "yyyy-MM-dd"))
-            .withColumn("parsedValue",
-                when(col("value").equalTo("."), lit(null).cast(DataTypes.DoubleType))
-                .otherwise(col("value").cast(DataTypes.DoubleType))
+            .filter(col("value").isNotNull)
+            .select(
+                from_avro(
+                    col("value"),
+                    getEconomicObservationSchemaString(),
+                    mapOf("mode" to "PERMISSIVE", "columnNameOfCorruptRecord" to "_corrupt_record")
+                ).alias("avro_data")
             )
+            .filter(col("avro_data._corrupt_record").isNull)
+            .select(
+                col("avro_data.seriesId").alias("seriesId"),
+                col("avro_data.observationDate").alias("observationDate"),
+                col("avro_data.value").alias("value_str")
+            )
+            .filter(col("value_str").isNotNull.and(col("value_str").notEqual(".")))
+            .withColumn("parsedValue", col("value_str").cast(DataTypes.DoubleType))
             .filter(col("parsedValue").isNotNull)
 
         return economicStream.writeStream()
-            .foreachBatch { (batchDF: Dataset[Row], batchId: Long) =>
+            .foreachBatch(VoidFunction2 { batchDF: Dataset<Row>, batchId: Long ->
                 if (!batchDF.isEmpty) {
-                    logger.info("Processing economic data batch $batchId with ${batchDF.count()} records")
-                    
-                    batchDF.collect().forEach { row =>
-                        try {
-                            val processedEconomic = ProcessedEconomicData(
-                                seriesId = row.getAs[String]("seriesId"),
-                                value = row.getAs[Double]("parsedValue"),
-                                date = row.getAs[java.sql.Date]("observationDate").toString,
-                                timestamp = System.currentTimeMillis()
-                            )
-                            
-                            writeEconomicDataToInfluxDB(processedEconomic)
-                            
-                        } catch (e: Exception) {
-                            logger.error("Error processing economic data for row: ${e.message}", e)
-                        }
-                    }
+                    logger.info("Processing Economic Data batch $batchId with ${batchDF.count()} records.")
+                    processEconomicBatch(batchDF)
                 }
-            }
-            .trigger(Trigger.ProcessingTime(60, TimeUnit.SECONDS))
+            })
+            .trigger(Trigger.ProcessingTime(5, TimeUnit.MINUTES))
+            .option("checkpointLocation", "/tmp/spark-checkpoint-economic")
+            .queryName("EconomicDataProcessingStream")
             .start()
     }
 
-    private fun writeRiskMetricsToInfluxDB(metrics: CalculatedRiskMetrics) {
+    private fun processOHLCVBatch(batchDF: Dataset<Row>) {
+        val rowsList = batchDF.collectAsList()
+        rowsList.forEach { row ->
+            try {
+                val symbol = row.getAs<String>("symbol")
+                if (symbol.isNullOrBlank()) return@forEach
+
+                val timestampValue = row.getAs<java.sql.Timestamp>("timestamp")?.time ?: System.currentTimeMillis()
+                val close = row.getAs<Double>("close")
+                val open = row.getAs<Double>("open")
+                val high = row.getAs<Double>("high")
+                val low = row.getAs<Double>("low")
+                val volume = row.getAs<Long>("volume")
+
+                if (listOf(close, open, high, low, volume).any { it == null } || close <= 0 || open <= 0 || high <= 0 || low <= 0) {
+                    logger.warn("Invalid OHLCV data for $symbol at $timestampValue, skipping.")
+                    return@forEach
+                }
+
+                val volatility = if (high > low && close > 0) (high - low) / close else 0.0
+                val priceChange = close - open
+                val priceChangePercent = if (open > 0) (priceChange / open) * 100.0 else 0.0
+                val riskScore = volatility * 100.0
+                val trend = when {
+                    priceChangePercent > 1.0 -> "BULLISH"
+                    priceChangePercent < -1.0 -> "BEARISH"
+                    else -> "NEUTRAL"
+                }
+
+                val metrics = CalculatedRiskMetrics(
+                    symbol = symbol, timestamp = timestampValue, close = close, volume = volume,
+                    open = open, high = high, low = low, priceChange = priceChange,
+                    priceChangePercent = priceChangePercent, volatility = volatility,
+                    riskScore = riskScore, trend = trend,
+                    volumeAverage = volume.toDouble(),
+                    calculationDate = LocalDate.now().toString()
+                )
+                
+                writeOhlcvToInfluxDB(metrics)
+                writeCalculatedMetricsToInfluxDB(metrics)
+                updateStockSummaryInCassandra(metrics)
+                
+            } catch (e: Exception) {
+                val symbolForError = try { row.getAs<String>("symbol") } catch (_: Exception) { "UNKNOWN_SYMBOL" }
+                logger.error("Error processing OHLCV row for $symbolForError: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun processNewsBatch(batchDF: Dataset<Row>) {
+        val rowsList = batchDF.collectAsList()
+        rowsList.forEach { row ->
+            try {
+                val headline = row.getAs<String>("headline")
+                val summary = row.getAs<String>("summary")
+                val timestampValue = row.getAs<Long>("datetime")
+                val source = row.getAs<String>("source")
+                val relatedSymbol = row.getAs<String>("related")
+
+                if (headline.isNullOrBlank() || summary.isNullOrBlank() || timestampValue == null) {
+                     logger.warn("Skipping news item due to missing headline, summary, or datetime.")
+                    return@forEach
+                }
+
+                val processedNews = ProcessedNews(
+                    headline = headline, summary = summary,
+                    sentiment = analyzeSentiment(headline, summary),
+                    timestamp = timestampValue,
+                    source = source ?: "Unknown",
+                    relatedSymbol = relatedSymbol
+                )
+                writeNewsToCassandra(processedNews)
+            } catch (e: Exception) {
+                logger.error("Error processing news row: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun processEconomicBatch(batchDF: Dataset<Row>) {
+        val rowsList = batchDF.collectAsList()
+        rowsList.forEach { row ->
+            try {
+                val seriesId = row.getAs<String>("seriesId")
+                val value = row.getAs<Double>("parsedValue")
+                val observationDate = row.getAs<String>("observationDate")
+
+                if (seriesId.isNullOrBlank()) {
+                    logger.warn("Skipping economic data due to missing seriesId.")
+                    return@forEach
+                }
+                
+                val processedEconomic = ProcessedEconomicData(
+                    seriesId = seriesId, value = value, observationDate = observationDate,
+                    processingTimestamp = System.currentTimeMillis()
+                )
+                writeEconomicObservationToInfluxDB(processedEconomic)
+                updateEconomicIndicatorSummaryInCassandra(processedEconomic)
+            } catch (e: Exception) {
+                val seriesForError = try { row.getAs<String>("seriesId") } catch (_: Exception) { "UNKNOWN_SERIES" }
+                logger.error("Error processing economic data for $seriesForError: ${e.message}", e)
+            }
+        }
+    }
+    
+    private fun getInfluxBucket(bucketType: String): String {
+        return when (bucketType.lowercase()) {
+            "stock" -> System.getenv("INFLUXDB_STOCK_TIMESERIES_BUCKET") ?: "stock_timeseries"
+            "economic" -> System.getenv("INFLUXDB_ECONOMIC_TIMESERIES_BUCKET") ?: "economic_timeseries"
+            else -> {
+                logger.warn("Unknown bucket type '$bucketType', using default.")
+                System.getenv("INFLUXDB_DEFAULT_BUCKET") ?: "stockdata"
+            }
+        }
+    }
+
+    private fun writeOhlcvToInfluxDB(metrics: CalculatedRiskMetrics) {
         try {
-            val points = mutableListOf<Point>()
-            
-            // Stock OHLCV measurement
-            val ohlcvPoint = Point.measurement("stock_ohlcv")
+            val bucket = getInfluxBucket("stock")
+            val org = System.getenv("INFLUXDB_ORG") ?: "YOUR_INFLUXDB_ORG"
+            val point = Point.measurement("ohlcv")
                 .addTag("symbol", metrics.symbol)
+                .addField("open", metrics.open)
+                .addField("high", metrics.high)
+                .addField("low", metrics.low)
                 .addField("close", metrics.close)
-                .addField("volume", metrics.volume)
-                .timestamp(Instant.ofEpochMilli(metrics.timestamp))
-            points.add(ohlcvPoint)
-            
-            // Calculated risk metrics measurement
-            val riskPoint = Point.measurement("calculated_risk_metrics")
+                .addField("volume", metrics.volume.toDouble())
+                .time(metrics.timestamp, WritePrecision.MS)
+            influxDBClient.getWriteApiBlocking().writePoint(bucket, org, point)
+        } catch (e: Exception) {
+            logger.error("InfluxDB Error (OHLCV) for ${metrics.symbol}: ${e.message}", e)
+        }
+    }
+
+    private fun writeCalculatedMetricsToInfluxDB(metrics: CalculatedRiskMetrics) {
+        try {
+            val bucket = getInfluxBucket("stock")
+            val org = System.getenv("INFLUXDB_ORG") ?: "YOUR_INFLUXDB_ORG"
+            val trendNumeric = when(metrics.trend.uppercase()) {
+                "BULLISH" -> 1.0
+                "BEARISH" -> -1.0
+                else -> 0.0
+            }
+            val point = Point.measurement("calculated_metrics")
                 .addTag("symbol", metrics.symbol)
-                .addTag("metric_type", "DAILY_SUMMARY")
-                .apply {
-                    metrics.historicalVolatility30d?.let { addField("hv_30d", it) }
-                    metrics.beta?.let { addField("beta", it) }
-                    metrics.var99?.let { addField("var_99", it) }
-                    metrics.cvar99?.let { addField("cvar_99", it) }
-                }
-                .timestamp(Instant.ofEpochMilli(metrics.timestamp))
-            points.add(riskPoint)
-            
-            influxDBClient.writePoints(points)
-            logger.debug("Written risk metrics to InfluxDB: ${metrics.symbol}")
-            
+                .addField("volatility", metrics.volatility ?: 0.0)
+                .addField("risk_score", metrics.riskScore ?: 0.0)
+                .addField("price_change", metrics.priceChange ?: 0.0)
+                .addField("price_change_percent", metrics.priceChangePercent ?: 0.0)
+                .addField("trend_numeric", trendNumeric)
+                .time(metrics.timestamp, WritePrecision.MS)
+            influxDBClient.getWriteApiBlocking().writePoint(bucket, org, point)
         } catch (e: Exception) {
-            logger.error("Failed to write risk metrics to InfluxDB for ${metrics.symbol}", e)
+            logger.error("InfluxDB Error (CalculatedMetrics) for ${metrics.symbol}: ${e.message}", e)
         }
     }
 
-    private fun writeNewsToInfluxDB(news: ProcessedNews) {
+    private fun updateStockSummaryInCassandra(metrics: CalculatedRiskMetrics) {
         try {
-            val point = Point.measurement("market_news_events")
-                .addTag("source", "Finnhub")
-                .addTag("sentiment", news.sentiment)
-                .apply {
-                    news.symbol?.let { addTag("related_symbol", it) }
-                }
-                .addField("headline", news.headline)
-                .addField("summary", news.summary)
-                .addField("news_id", System.currentTimeMillis()) // Simple ID generation
-                .timestamp(Instant.ofEpochMilli(news.timestamp))
-            
-            influxDBClient.writePoint(point)
-            logger.debug("Written news to InfluxDB: ${news.headline.take(50)}...")
-            
+            val stmt = cassandraSession.prepare(
+                """
+                INSERT INTO stock_summaries 
+                (symbol, last_timestamp, current_price, latest_volume, latest_volatility, 
+                 latest_risk_score, latest_trend, calculation_date, 
+                 price_change_today, price_change_percent_today) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+            )
+            cassandraSession.execute(stmt.bind(
+                metrics.symbol, metrics.timestamp, metrics.close, metrics.volume,
+                metrics.volatility ?: 0.0, metrics.riskScore ?: 0.0, metrics.trend,
+                metrics.calculationDate, metrics.priceChange ?: 0.0, metrics.priceChangePercent ?: 0.0
+            ))
         } catch (e: Exception) {
-            logger.error("Failed to write news to InfluxDB", e)
+            logger.error("Cassandra Error (StockSummary) for ${metrics.symbol}: ${e.message}", e)
         }
     }
 
-    private fun writeEconomicDataToInfluxDB(data: ProcessedEconomicData) {
+    private fun writeNewsToCassandra(news: ProcessedNews) {
         try {
-            val point = Point.measurement("economic_indicator_observations")
+            val newsId = UUID.fromString(news.id)
+            val dateBucket = LocalDate.ofInstant(
+                Instant.ofEpochMilli(news.timestamp), 
+                ZoneId.systemDefault()
+            ).toString()
+
+            val stmt = cassandraSession.prepare(
+                """
+                INSERT INTO market_news 
+                (id, date_bucket, timestamp, headline, summary, sentiment, source, related_symbol) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """
+            )
+            cassandraSession.execute(stmt.bind(
+                newsId, dateBucket, news.timestamp, news.headline, news.summary,
+                news.sentiment, news.source, news.relatedSymbol
+            ))
+        } catch (e: Exception) {
+            logger.error("Cassandra Error (News) for ${news.headline.take(30)}: ${e.message}", e)
+        }
+    }
+
+    private fun writeEconomicObservationToInfluxDB(data: ProcessedEconomicData) {
+        try {
+            val bucket = getInfluxBucket("economic")
+            val org = System.getenv("INFLUXDB_ORG") ?: "YOUR_INFLUXDB_ORG"
+            val observationInstant = LocalDate.parse(data.observationDate).atStartOfDay(ZoneId.systemDefault()).toInstant()
+
+            val point = Point.measurement("fred_observations")
                 .addTag("series_id", data.seriesId)
-                .addTag("units", getUnitsForSeries(data.seriesId))
                 .addField("value", data.value)
-                .timestamp(Instant.ofEpochMilli(data.timestamp))
-            
-            influxDBClient.writePoint(point)
-            logger.info("Written economic data to InfluxDB: ${data.seriesId} = ${data.value}")
-            
+                .time(observationInstant.toEpochMilli(), WritePrecision.MS)
+            influxDBClient.getWriteApiBlocking().writePoint(bucket, org, point)
         } catch (e: Exception) {
-            logger.error("Failed to write economic data to InfluxDB for ${data.seriesId}", e)
+            logger.error("InfluxDB Error (Economic) for ${data.seriesId}: ${e.message}", e)
+        }
+    }
+
+    private fun updateEconomicIndicatorSummaryInCassandra(data: ProcessedEconomicData) {
+        try {
+            val stmt = cassandraSession.prepare(
+                """
+                INSERT INTO economic_indicator_summaries 
+                (indicator, last_timestamp, latest_value, observation_date) 
+                VALUES (?, ?, ?, ?)
+                """
+            )
+            cassandraSession.execute(stmt.bind(
+                data.seriesId, data.processingTimestamp, data.value, data.observationDate
+            ))
+        } catch (e: Exception) {
+            logger.error("Cassandra Error (EconomicSummary) for ${data.seriesId}: ${e.message}", e)
         }
     }
 
     private fun analyzeSentiment(headline: String, summary: String): String {
-        // Simple sentiment analysis based on keywords
         val text = (headline + " " + summary).lowercase()
-        
-        val positiveWords = listOf("gain", "rise", "up", "surge", "bull", "positive", "growth", "strong", "beat", "exceed")
-        val negativeWords = listOf("fall", "drop", "down", "decline", "bear", "negative", "loss", "weak", "miss", "plunge")
+        val positiveWords = listOf("gain", "rise", "up", "surge", "bull", "positive", "growth", "strong", "beat", "exceed", "optimistic", "rally", "booming", "record high")
+        val negativeWords = listOf("fall", "drop", "down", "decline", "bear", "negative", "loss", "weak", "miss", "plunge", "pessimistic", "slump", "crisis", "recession")
         
         val positiveCount = positiveWords.count { text.contains(it) }
         val negativeCount = negativeWords.count { text.contains(it) }
         
         return when {
-            positiveCount > negativeCount -> "POSITIVE"
-            negativeCount > positiveCount -> "NEGATIVE"
+            positiveCount > negativeCount + 1 -> "POSITIVE"
+            negativeCount > positiveCount + 1 -> "NEGATIVE"
             else -> "NEUTRAL"
         }
     }
 
-    private fun getUnitsForSeries(seriesId: String): String {
-        return when (seriesId) {
-            "VIXCLS" -> "Index"
-            "SP500", "NASDAQCOM" -> "Index"
-            "DGS10" -> "Percent"
-            "CPIAUCSL" -> "Index"
-            "UNRATE" -> "Percent"
-            else -> "Unknown"
+    private fun getStockCandleSchemaString(): String {
+        return """
+        {
+          "type": "record", "name": "StockCandle", "namespace": "com.harshsbajwa.stockifai.avro.finnhub",
+          "fields": [
+            {"name": "symbol", "type": "string"}, {"name": "open", "type": "double"},
+            {"name": "high", "type": "double"}, {"name": "low", "type": "double"},
+            {"name": "close", "type": "double"}, {"name": "volume", "type": "long"},
+            {"name": "timestamp", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+          ]
         }
+        """
+    }
+    private fun getMarketNewsSchemaString(): String {
+        return """
+        {
+          "type": "record", "name": "MarketNews", "namespace": "com.harshsbajwa.stockifai.avro.finnhub",
+          "fields": [
+            {"name": "category", "type": "string"},
+            {"name": "datetime", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+            {"name": "headline", "type": "string"}, {"name": "id", "type": "long"},
+            {"name": "image", "type": ["null", "string"], "default": null},
+            {"name": "related", "type": ["null", "string"], "default": null},
+            {"name": "source", "type": "string"}, {"name": "summary", "type": "string"},
+            {"name": "url", "type": "string"}
+          ]
+        }
+        """
+    }
+    private fun getEconomicObservationSchemaString(): String {
+        return """
+        {
+          "type": "record", "name": "EconomicObservation", "namespace": "com.harshsbajwa.stockifai.avro.fred",
+          "fields": [
+            {"name": "seriesId", "type": "string"}, {"name": "observationDate", "type": "string"},
+            {"name": "value", "type": "string"}, {"name": "realTimeStart", "type": "string"},
+            {"name": "realTimeEnd", "type": "string"}
+          ]
+        }
+        """
     }
 
     private fun cleanup() {
         try {
-            if (::influxDBClient.isInitialized) influxDBClient.close()
-            if (::cassandraSession.isInitialized && !cassandraSession.isClosed) {
+            if (this::influxDBClient.isInitialized) influxDBClient.close()
+            if (this::cassandraSession.isInitialized && !cassandraSession.isClosed) {
                 cassandraSession.close()
             }
-            logger.info("Database connections closed")
+            logger.info("Database connections closed.")
         } catch (e: Exception) {
             logger.error("Error during cleanup", e)
         }

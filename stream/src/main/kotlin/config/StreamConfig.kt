@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
+import org.springframework.context.event.EventListener
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.kafka.core.DefaultKafkaProducerFactory
 import org.springframework.kafka.core.KafkaTemplate
@@ -17,7 +18,9 @@ import org.springframework.kafka.core.ProducerFactory
 import org.springframework.retry.annotation.EnableRetry
 import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.scheduling.annotation.EnableScheduling
+import org.springframework.scheduling.annotation.Async
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.boot.context.event.ApplicationReadyEvent
 import reactor.netty.http.client.HttpClient
 import reactor.netty.resources.ConnectionProvider
 import java.time.Duration
@@ -28,6 +31,10 @@ import java.time.Duration
 @EnableRetry
 @Profile("!test")
 class StreamConfig {
+
+    companion object {
+        private val logger = org.slf4j.LoggerFactory.getLogger(StreamConfig::class.java)
+    }
 
     @Value("\${spring.kafka.bootstrap-servers:localhost:9092}")
     private lateinit var bootstrapServers: String
@@ -79,6 +86,35 @@ class StreamConfig {
     @Bean
     fun avroKafkaTemplate(): KafkaTemplate<String, Any> {
         return KafkaTemplate(avroProducerFactory())
+    }
+
+    @Bean
+    fun schemaRegistryHealthCheck(): WebClient {
+        return WebClient.builder()
+            .baseUrl(schemaRegistryUrl)
+            .build()
+    }
+
+    @EventListener
+    @Async
+    fun onApplicationReady(event: ApplicationReadyEvent) {
+        validateSchemaRegistry()
+    }
+
+    private fun validateSchemaRegistry() {
+        try {
+            schemaRegistryHealthCheck()
+                .get()
+                .uri("/subjects")
+                .retrieve()
+                .bodyToMono(String::class.java)
+                .timeout(Duration.ofSeconds(10))
+                .doOnSuccess { logger.info("Schema Registry is accessible: {}", schemaRegistryUrl) }
+                .doOnError { logger.error("Schema Registry is not accessible: {}", it.message) }
+                .subscribe()
+        } catch (e: Exception) {
+            logger.error("Failed to validate Schema Registry connection", e)
+        }
     }
 
     @Bean

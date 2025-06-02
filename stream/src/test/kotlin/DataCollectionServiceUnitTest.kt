@@ -14,77 +14,51 @@ class DataCollectionServiceUnitTest {
     }
 
     @Test
-    fun `data models should serialize correctly`() {
-        val stockQuote = StockQuoteData(
-            symbol = "AAPL",
-            regularMarketPrice = 150.25,
-            regularMarketVolume = 1000000L,
-            regularMarketChangePercent = 1.69,
-            regularMarketDayHigh = 152.0,
-            regularMarketDayLow = 148.0,
-            regularMarketOpen = 149.0,
+    fun `finnhub quote should serialize correctly`() {
+        val finnhubQuote = FinnhubQuote(
+            currentPrice = 150.25,
+            highPriceOfDay = 152.0,
+            lowPriceOfDay = 148.0,
+            openPriceOfDay = 149.0,
             previousClosePrice = 147.75,
-            timestamp = System.currentTimeMillis() / 1000
+            timestamp = 1640995200L,
+            change = 2.5,
+            percentChange = 1.69
         )
 
-        val json = objectMapper.writeValueAsString(stockQuote)
+        val json = objectMapper.writeValueAsString(finnhubQuote)
         assertNotNull(json)
-        assertTrue(json.contains("AAPL"))
         assertTrue(json.contains("150.25"))
+        assertTrue(json.contains("1.69"))
 
-        val deserialized = objectMapper.readValue(json, StockQuoteData::class.java)
+        val deserialized = objectMapper.readValue(json, FinnhubQuote::class.java)
         assertNotNull(deserialized)
-        assertTrue(deserialized.symbol == "AAPL")
-        assertTrue(deserialized.regularMarketPrice == 150.25)
+        assertTrue(deserialized.currentPrice == 150.25)
+        assertTrue(deserialized.percentChange == 1.69)
     }
 
     @Test
-    fun `economic indicator should serialize correctly`() {
-        val indicator = EconomicIndicator(
-            indicator = "VIXCLS",
-            value = 18.75,
-            date = "2023-12-31"
+    fun `fred observation should serialize correctly`() {
+        val fredObservation = FredObservation(
+            date = "2023-12-31",
+            value = "18.75",
+            realtimeStart = "2023-12-31",
+            realtimeEnd = "2023-12-31"
         )
 
-        val json = objectMapper.writeValueAsString(indicator)
+        val json = objectMapper.writeValueAsString(fredObservation)
         assertNotNull(json)
-        assertTrue(json.contains("VIXCLS"))
+        assertTrue(json.contains("2023-12-31"))
         assertTrue(json.contains("18.75"))
 
-        val deserialized = objectMapper.readValue(json, EconomicIndicator::class.java)
+        val deserialized = objectMapper.readValue(json, FredObservation::class.java)
         assertNotNull(deserialized)
-        assertTrue(deserialized.indicator == "VIXCLS")
-        assertTrue(deserialized.value == 18.75)
+        assertTrue(deserialized.date == "2023-12-31")
+        assertTrue(deserialized.value == "18.75")
     }
 
     @Test
-    fun `stock message wrapper should serialize correctly`() {
-        val stockQuote = StockQuoteData(
-            symbol = "TSLA",
-            regularMarketPrice = 250.50,
-            regularMarketVolume = 2000000L,
-            regularMarketChangePercent = 2.5,
-            regularMarketDayHigh = 255.0,
-            regularMarketDayLow = 245.0,
-            regularMarketOpen = 248.0,
-            previousClosePrice = 244.5,
-            timestamp = System.currentTimeMillis() / 1000
-        )
-
-        val message = StockMessage("stock_quote", stockQuote)
-
-        val json = objectMapper.writeValueAsString(message)
-        assertNotNull(json)
-        assertTrue(json.contains("stock_quote"))
-        assertTrue(json.contains("TSLA"))
-
-        val deserialized = objectMapper.readValue(json, StockMessage::class.java)
-        assertNotNull(deserialized)
-        assertTrue(deserialized.messageType == "stock_quote")
-    }
-
-    @Test
-    fun `finnhub quote should deserialize correctly`() {
+    fun `finnhub quote should deserialize correctly from json`() {
         val json = """
             {
                 "c": 150.25,
@@ -112,7 +86,9 @@ class DataCollectionServiceUnitTest {
                 "observations": [
                     {
                         "date": "2023-12-31",
-                        "value": "18.75"
+                        "value": "18.75",
+                        "realtime_start": "2023-12-31",
+                        "realtime_end": "2023-12-31"
                     }
                 ]
             }

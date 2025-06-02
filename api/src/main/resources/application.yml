@@ -10,13 +10,13 @@ spring:
       contact-points: ${CASSANDRA_HOST:127.0.0.1}
       port: ${CASSANDRA_PORT:9042}
       local-datacenter: ${CASSANDRA_DATACENTER:datacenter1}
-      keyspace-name: ${CASSANDRA_KEYSPACE:finrisk_reference_data}
+      keyspace-name: ${CASSANDRA_KEYSPACE:stock_keyspace}
       schema-action: CREATE_IF_NOT_EXISTS
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${JWT_ISSUER_URI:https://your-auth-server.com/auth/realms/your-realm}
+          issuer-uri: ${JWT_ISSUER_URI:#{null}}
 
 management:
   endpoints:
@@ -33,13 +33,14 @@ management:
 
 influxdb:
   url: ${INFLUXDB_URL:http://localhost:8086}
-  token: ${INFLUXDB_TOKEN:your-token}
-  database: ${INFLUXDB_DATABASE:stockifai}
+  token: ${INFLUXDB_TOKEN:mySuperSecretToken123!}
+  org: ${INFLUXDB_ORG:stockifai}
+  bucket: ${INFLUXDB_BUCKET:stockdata}
 
 logging:
   level:
     com.harshsbajwa.stockifai: INFO
-    org.springframework.security: DEBUG
+    org.springframework.security: WARN
     com.datastax.oss.driver: WARN
 
 ---
@@ -51,15 +52,15 @@ spring:
     cassandra:
       contact-points: cassandra
       port: 9042
-      local-datacenter: dc1
+      local-datacenter: datacenter1
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: http://keycloak:8080/auth/realms/stockifai
+          issuer-uri: ${JWT_ISSUER_URI:#{null}}
 
 influxdb:
   url: http://influxdb:8086
-  token: ${INFLUXDB_TOKEN}
-  database: stockifai
-  
+  token: ${INFLUXDB_TOKEN:mySuperSecretToken123!}
+  org: ${INFLUXDB_ORG:stockifai}
+  bucket: ${INFLUXDB_BUCKET:stockdata}
