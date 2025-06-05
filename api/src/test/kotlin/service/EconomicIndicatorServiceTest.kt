@@ -1,10 +1,9 @@
 package com.harshsbajwa.stockifai.api.service
 
-import com.harshsbajwa.stockifai.api.model.EconomicIndicatorSummary
-import com.harshsbajwa.stockifai.api.model.EconomicIndicatorMetadata as EconomicIndicatorMetadataEntity
-import com.harshsbajwa.stockifai.api.repository.EconomicIndicatorRepository
-import com.harshsbajwa.stockifai.api.repository.EconomicIndicatorMetadataRepository
 import com.harshsbajwa.stockifai.api.dto.EconomicDataPoint
+import com.harshsbajwa.stockifai.api.model.EconomicIndicatorSummary
+import com.harshsbajwa.stockifai.api.repository.EconomicIndicatorMetadataRepository
+import com.harshsbajwa.stockifai.api.repository.EconomicIndicatorRepository
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
@@ -16,11 +15,10 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.Optional
 import kotlin.test.*
-
+import com.harshsbajwa.stockifai.api.model.EconomicIndicatorMetadata as EconomicIndicatorMetadataEntity
 
 @ExtendWith(MockitoExtension::class)
 class EconomicIndicatorServiceTest {
-
     @Mock
     private lateinit var indicatorSummaryRepository: EconomicIndicatorRepository
 
@@ -39,19 +37,21 @@ class EconomicIndicatorServiceTest {
     @BeforeEach
     fun setUp() {
         val now = Instant.now()
-        sampleIndicatorSummary = EconomicIndicatorSummary(
-            indicator = "VIXCLS",
-            lastTimestamp = now.toEpochMilli(),
-            latestValue = 18.75,
-            observationDate = LocalDate.now().toString()
-        )
-        sampleMetadata = EconomicIndicatorMetadataEntity(
-            seriesId = "VIXCLS",
-            title = "CBOE Volatility Index",
-            frequency = "Daily",
-            units = "Index",
-            source = "FRED"
-        )
+        sampleIndicatorSummary =
+            EconomicIndicatorSummary(
+                indicator = "VIXCLS",
+                lastTimestamp = now.toEpochMilli(),
+                latestValue = 18.75,
+                observationDate = LocalDate.now().toString(),
+            )
+        sampleMetadata =
+            EconomicIndicatorMetadataEntity(
+                series_id = "VIXCLS",
+                title = "CBOE Volatility Index",
+                frequency = "Daily",
+                units = "Index",
+                source = "FRED",
+            )
     }
 
     @Test
@@ -65,7 +65,7 @@ class EconomicIndicatorServiceTest {
 
         // Then
         assertNotNull(result)
-        assertEquals("VIXCLS", result.seriesId)
+        assertEquals("VIXCLS", result.series_id)
         assertEquals(1, result.observations.size)
         assertEquals(18.75, result.observations[0].value)
         assertEquals("CBOE Volatility Index", result.metadata?.title)
@@ -86,48 +86,48 @@ class EconomicIndicatorServiceTest {
         assertNull(result)
         verify(indicatorSummaryRepository).findById("INVALID")
     }
-    
+
     @Test
     fun `getEconomicIndicatorTimeSeries should call InfluxDBService`() {
         // Given
-        val seriesId = "VIXCLS"
+        val series_id = "VIXCLS"
         val days = 30L
-        val mockResponse = listOf(EconomicDataPoint(seriesId, 20.0, Instant.now()))
-        whenever(influxDBService.getEconomicTimeSeries(seriesId, days)).thenReturn(mockResponse)
+        val mockResponse = listOf(EconomicDataPoint(series_id, 20.0, Instant.now()))
+        whenever(influxDBService.getEconomicTimeSeries(series_id, days)).thenReturn(mockResponse)
 
         // When
-        val result = economicIndicatorService.getEconomicIndicatorTimeSeries(seriesId, days)
+        val result = economicIndicatorService.getEconomicIndicatorTimeSeries(series_id, days)
 
         // Then
         assertNotNull(result)
         assertEquals(1, result.size)
-        assertEquals(seriesId, result[0].seriesId)
-        verify(influxDBService).getEconomicTimeSeries(seriesId, days)
+        assertEquals(series_id, result[0].series_id)
+        verify(influxDBService).getEconomicTimeSeries(series_id, days)
     }
-
 
     @Test
     fun `getAllLatestIndicatorSummaries should return paginated results`() {
         // Given
-        val indicatorIds = listOf("VIXCLS", "FEDFUNDS")
-        whenever(indicatorSummaryRepository.findAllDistinctIndicators()).thenReturn(indicatorIds)
-        
         val vixSummary = sampleIndicatorSummary.copy(indicator = "VIXCLS")
         val fedfundsSummary = sampleIndicatorSummary.copy(indicator = "FEDFUNDS", latestValue = 0.05)
-        
-        whenever(indicatorSummaryRepository.findById("VIXCLS")).thenReturn(Optional.of(vixSummary))
-        whenever(metadataRepository.findById("VIXCLS")).thenReturn(Optional.of(sampleMetadata.copy(seriesId = "VIXCLS")))
-        
-        whenever(indicatorSummaryRepository.findById("FEDFUNDS")).thenReturn(Optional.of(fedfundsSummary))
-        whenever(metadataRepository.findById("FEDFUNDS")).thenReturn(Optional.of(sampleMetadata.copy(seriesId = "FEDFUNDS", title = "Federal Funds Rate")))
+        val indicatorSummaries = listOf(vixSummary, fedfundsSummary)
+        whenever(indicatorSummaryRepository.findAllEconomicIndicators()).thenReturn(indicatorSummaries)
+
+        whenever(
+            metadataRepository.findById("VIXCLS"),
+        ).thenReturn(Optional.of(sampleMetadata.copy(series_id = "VIXCLS")))
+
+        whenever(
+            metadataRepository.findById("FEDFUNDS"),
+        ).thenReturn(Optional.of(sampleMetadata.copy(series_id = "FEDFUNDS", title = "Federal Funds Rate")))
 
         // When
         val result = economicIndicatorService.getAllLatestIndicatorSummaries(0, 2)
 
         // Then
         assertEquals(2, result.data.size)
-        assertEquals("VIXCLS", result.data[0].seriesId)
-        assertEquals("FEDFUNDS", result.data[1].seriesId)
+        assertEquals("VIXCLS", result.data[0].series_id)
+        assertEquals("FEDFUNDS", result.data[1].series_id)
         assertEquals(0, result.page)
         assertEquals(2, result.size)
         assertEquals(2L, result.totalElements)

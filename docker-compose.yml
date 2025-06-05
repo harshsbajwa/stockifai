@@ -113,10 +113,23 @@ services:
     networks:
       - stocknet
     healthcheck:
-      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
-      interval: 30s
+      test: ["CMD-SHELL", "nc -z localhost 9042 || exit 1"]
+      interval: 15s
       timeout: 10s
       retries: 10
+      start_period: 30s
+
+  init-cassandra:
+    image: cassandra:4.1
+    depends_on:
+      cassandra:
+        condition: service_started
+    volumes:
+      - ./docker/cassandra/init-cassandra.sh:/init-cassandra.sh
+    command: ["/bin/bash", "/init-cassandra.sh"]
+    networks:
+      - stocknet
+    restart: on-failure
 
   # --- Applications ---
   stream:
@@ -124,7 +137,7 @@ services:
       context: .
       dockerfile: stream/Dockerfile
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_PROFILES_ACTIVE=local-docker
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9093
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
@@ -136,6 +149,8 @@ services:
         condition: service_healthy
       schema-registry:
         condition: service_healthy
+      init-cassandra:
+        condition: service_completed_successfully
     networks:
       - stocknet
     ports:
@@ -155,27 +170,21 @@ services:
     ports:
       - "8000:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - SPRING_PROFILES_ACTIVE=local-docker
+      - CASSANDRA_HOST=cassandra
       - SPRING_DATA_CASSANDRA_CONTACT_POINTS=cassandra
       - SPRING_DATA_CASSANDRA_PORT=9042
       - SPRING_DATA_CASSANDRA_LOCAL_DATACENTER=datacenter1
       - SPRING_DATA_CASSANDRA_KEYSPACE_NAME=stock_keyspace
       - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=mySuperSecretToken123!
-      - INFLUXDB_ORG=stockifai
-      - INFLUXDB_BUCKET=stockdata
-      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
     depends_on:
-      kafka:
-        condition: service_healthy
       influxdb:
         condition: service_healthy
-      cassandra:
-        condition: service_healthy
-      schema-registry:
-         condition: service_healthy
+      init-cassandra:
+        condition: service_completed_successfully
     networks:
       - stocknet
     restart: unless-stopped
@@ -184,6 +193,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 20s
 
   spark:
     build:
@@ -196,11 +206,11 @@ services:
       - CASSANDRA_HOST=cassandra
       - CASSANDRA_PORT=9042
       - CASSANDRA_KEYSPACE=stock_keyspace
+      - CASSANDRA_LOCAL_DATACENTER=datacenter1
       - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=mySuperSecretToken123!
-      - INFLUXDB_ORG=stockifai
-      - INFLUXDB_BUCKET=stockdata
-      - INFLUXDB_DATABASE=stockdata
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
     mem_limit: 4g
     mem_reservation: 2g
     depends_on:
@@ -208,8 +218,8 @@ services:
         condition: service_healthy
       influxdb:
         condition: service_healthy
-      cassandra:
-        condition: service_healthy
+      init-cassandra:
+        condition: service_completed_successfully
       schema-registry:
         condition: service_healthy
       stream:

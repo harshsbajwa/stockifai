@@ -7,6 +7,7 @@ import io.netty.channel.ChannelOption
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.StringSerializer
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -16,11 +17,10 @@ import org.springframework.kafka.core.DefaultKafkaProducerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.core.ProducerFactory
 import org.springframework.retry.annotation.EnableRetry
+import org.springframework.scheduling.annotation.Async
 import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.scheduling.annotation.EnableScheduling
-import org.springframework.scheduling.annotation.Async
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.boot.context.event.ApplicationReadyEvent
 import reactor.netty.http.client.HttpClient
 import reactor.netty.resources.ConnectionProvider
 import java.time.Duration
@@ -31,7 +31,6 @@ import java.time.Duration
 @EnableRetry
 @Profile("!test")
 class StreamConfig {
-
     companion object {
         private val logger = org.slf4j.LoggerFactory.getLogger(StreamConfig::class.java)
     }
@@ -39,7 +38,7 @@ class StreamConfig {
     @Value("\${spring.kafka.bootstrap-servers:localhost:9092}")
     private lateinit var bootstrapServers: String
 
-    @Value("\${spring.kafka.schema-registry-url:http://localhost:8081}")
+    @Value("\${spring.kafka.producer.properties.schema.registry.url:http://localhost:8081}")
     private lateinit var schemaRegistryUrl: String
 
     @Value("\${spring.kafka.producer.retries:3}")
@@ -55,12 +54,11 @@ class StreamConfig {
     private val bufferMemory: Long = 33554432
 
     @Bean
-    fun objectMapper(): ObjectMapper {
-        return ObjectMapper().apply {
+    fun objectMapper(): ObjectMapper =
+        ObjectMapper().apply {
             registerModule(KotlinModule.Builder().build())
             findAndRegisterModules()
         }
-    }
 
     @Bean
     fun avroProducerFactory(): ProducerFactory<String, Any> {
@@ -84,16 +82,14 @@ class StreamConfig {
     }
 
     @Bean
-    fun avroKafkaTemplate(): KafkaTemplate<String, Any> {
-        return KafkaTemplate(avroProducerFactory())
-    }
+    fun avroKafkaTemplate(): KafkaTemplate<String, Any> = KafkaTemplate(avroProducerFactory())
 
     @Bean
-    fun schemaRegistryHealthCheck(): WebClient {
-        return WebClient.builder()
+    fun schemaRegistryHealthCheck(): WebClient =
+        WebClient
+            .builder()
             .baseUrl(schemaRegistryUrl)
             .build()
-    }
 
     @EventListener
     @Async
@@ -119,23 +115,27 @@ class StreamConfig {
 
     @Bean
     fun webClient(): WebClient {
-        val connectionProvider = ConnectionProvider.builder("custom")
-            .maxConnections(50)
-            .maxIdleTime(Duration.ofSeconds(20))
-            .maxLifeTime(Duration.ofSeconds(60))
-            .pendingAcquireTimeout(Duration.ofSeconds(60))
-            .evictInBackground(Duration.ofSeconds(120))
-            .build()
+        val connectionProvider =
+            ConnectionProvider
+                .builder("custom")
+                .maxConnections(50)
+                .maxIdleTime(Duration.ofSeconds(20))
+                .maxLifeTime(Duration.ofSeconds(60))
+                .pendingAcquireTimeout(Duration.ofSeconds(60))
+                .evictInBackground(Duration.ofSeconds(120))
+                .build()
 
-        val httpClient = HttpClient.create(connectionProvider)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
-            .responseTimeout(Duration.ofSeconds(10))
+        val httpClient =
+            HttpClient
+                .create(connectionProvider)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
+                .responseTimeout(Duration.ofSeconds(10))
 
-        return WebClient.builder()
+        return WebClient
+            .builder()
             .clientConnector(ReactorClientHttpConnector(httpClient))
             .codecs { configurer ->
                 configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024)
-            }
-            .build()
+            }.build()
     }
 }

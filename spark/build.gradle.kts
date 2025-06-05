@@ -66,20 +66,20 @@ dependencies {
     implementation("org.scala-lang:scala-library:2.12.18")
 
     // Spark Core and SQL
-    implementation("org.apache.spark:spark-core_${scalaVersion}:${sparkVersion}") {
+    implementation("org.apache.spark:spark-core_$scalaVersion:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
-    implementation("org.apache.spark:spark-sql_${scalaVersion}:${sparkVersion}") {
+    implementation("org.apache.spark:spark-sql_$scalaVersion:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
 
     // Spark Structured Streaming with Kafka
-    implementation("org.apache.spark:spark-sql-kafka-0-10_${scalaVersion}:${sparkVersion}") {
+    implementation("org.apache.spark:spark-sql-kafka-0-10_$scalaVersion:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
-    
+
     // Avro support for Spark
-    implementation("org.apache.spark:spark-avro_${scalaVersion}:${sparkVersion}") {
+    implementation("org.apache.spark:spark-avro_$scalaVersion:$sparkVersion") {
         exclude(group = "org.slf4j", module = "slf4j-log4j12")
     }
 
@@ -130,41 +130,58 @@ tasks.test {
     useJUnitPlatform()
     minHeapSize = "1g"
     maxHeapSize = "4g"
-    
-    jvmArgs = listOf(
-        "--add-opens", "java.base/java.lang=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util=ALL-UNNAMED", 
-        "--add-opens", "java.base/java.nio=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.security.action=ALL-UNNAMED",
-        "--add-opens", "java.base/java.io=ALL-UNNAMED",
-        "--add-opens", "java.base/java.net=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.nio.fs=ALL-UNNAMED",
-        "--add-opens", "java.base/java.lang.invoke=ALL-UNNAMED",
-        "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.util.calendar=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util.concurrent.atomic=ALL-UNNAMED",
-        "--add-opens", "java.base/java.nio.channels=ALL-UNNAMED",
-        "--add-opens", "java.management/sun.management=ALL-UNNAMED",
-        "-Djava.security.manager=default",
-        "-Dio.netty.tryReflectionSetAccessible=true",
-        "-Dsun.net.useExclusiveBind=false",
-        "-Djava.net.preferIPv4Stack=true"
-    )
-    
-    systemProperties = mapOf(
-        "spark.master" to "local[2]",
-        "spark.app.name" to "SparkProcessorTest",
-        "spark.sql.adaptive.enabled" to "true",
-        "spark.sql.adaptive.coalescePartitions.enabled" to "true",
-        "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
-        "java.net.useSystemProxies" to "true"
-    )
-    
+
+    jvmArgs =
+        listOf(
+            "--add-opens",
+            "java.base/java.lang=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.util=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.nio=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.nio.ch=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.security.action=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.io=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.net=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.nio.fs=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.lang.invoke=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.lang.reflect=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.util.concurrent=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.util.calendar=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.nio.channels=ALL-UNNAMED",
+            "--add-opens",
+            "java.management/sun.management=ALL-UNNAMED",
+            "-Djava.security.manager=default",
+            "-Dio.netty.tryReflectionSetAccessible=true",
+            "-Dsun.net.useExclusiveBind=false",
+            "-Djava.net.preferIPv4Stack=true",
+        )
+
+    systemProperties =
+        mapOf(
+            "spark.master" to "local[2]",
+            "spark.app.name" to "SparkProcessorTest",
+            "spark.sql.adaptive.enabled" to "true",
+            "spark.sql.adaptive.coalescePartitions.enabled" to "true",
+            "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
+            "java.net.useSystemProxies" to "true",
+        )
+
     timeout.set(Duration.ofMinutes(10))
     maxParallelForks = 1
-    
+
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
@@ -182,7 +199,7 @@ tasks.jar {
             "Main-Class" to "com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt",
             "Implementation-Title" to project.name,
             "Implementation-Version" to project.version,
-            "Class-Path" to configurations.runtimeClasspath.get().joinToString(" ") { it.name }
+            "Class-Path" to configurations.runtimeClasspath.get().joinToString(" ") { it.name },
         )
     }
 
@@ -204,43 +221,61 @@ tasks.register<JavaExec>("runLocal") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt")
 
-    jvmArgs = listOf(
-        "--add-opens", "java.base/java.lang=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util=ALL-UNNAMED", 
-        "--add-opens", "java.base/java.nio=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.security.action=ALL-UNNAMED",
-        "--add-opens", "java.base/java.io=ALL-UNNAMED",
-        "--add-opens", "java.base/java.net=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.nio.fs=ALL-UNNAMED",
-        "--add-opens", "java.base/java.lang.invoke=ALL-UNNAMED",
-        "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.util.calendar=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util.concurrent.atomic=ALL-UNNAMED",
-        "--add-opens", "java.base/java.nio.channels=ALL-UNNAMED",
-        "--add-opens", "java.management/sun.management=ALL-UNNAMED",
-        "-Dio.netty.tryReflectionSetAccessible=true",
-        "-Dlog4j.configurationFile=src/main/resources/log4j2.xml"
-    )
+    jvmArgs =
+        listOf(
+            "--add-opens",
+            "java.base/java.lang=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.util=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.nio=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.nio.ch=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.security.action=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.io=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.net=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.nio.fs=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.lang.invoke=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.lang.reflect=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.util.concurrent=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/sun.util.calendar=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+            "--add-opens",
+            "java.base/java.nio.channels=ALL-UNNAMED",
+            "--add-opens",
+            "java.management/sun.management=ALL-UNNAMED",
+            "-Dio.netty.tryReflectionSetAccessible=true",
+            "-Dlog4j.configurationFile=src/main/resources/log4j2.xml",
+        )
 
-    systemProperties = mapOf(
-        "spark.master" to "local[*]",
-        "spark.app.name" to "StockifAI-RiskCalculationEngine-Local",
-        "spark.sql.adaptive.enabled" to "true",
-        "spark.sql.adaptive.coalescePartitions.enabled" to "true",
-        "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
-    )
+    systemProperties =
+        mapOf(
+            "spark.master" to "local[*]",
+            "spark.app.name" to "StockifAI-RiskCalculationEngine-Local",
+            "spark.sql.adaptive.enabled" to "true",
+            "spark.sql.adaptive.coalescePartitions.enabled" to "true",
+            "spark.sql.streaming.forceDeleteTempCheckpointLocation" to "true",
+        )
 
-    environment = mapOf(
-        "KAFKA_BOOTSTRAP_SERVERS" to "localhost:9092",
-        "SCHEMA_REGISTRY_URL" to "http://localhost:8081",
-        "INFLUXDB_URL" to "http://localhost:8086",
-        "INFLUXDB_TOKEN" to "your-influxdb-token",
-        "INFLUXDB_ORG" to "stockifai",
-        "INFLUXDB_BUCKET" to "stocks",
-        "CASSANDRA_HOST" to "localhost",
-        "CASSANDRA_PORT" to "9042",
-        "CASSANDRA_KEYSPACE" to "stockdata"
-    )
+    environment =
+        mapOf(
+            "KAFKA_BOOTSTRAP_SERVERS" to "localhost:9092",
+            "SCHEMA_REGISTRY_URL" to "http://localhost:8081",
+            "INFLUXDB_URL" to "http://localhost:8086",
+            "INFLUXDB_TOKEN" to "your-influxdb-token",
+            "INFLUXDB_ORG" to "stockifai",
+            "INFLUXDB_BUCKET" to "stocks",
+            "CASSANDRA_HOST" to "localhost",
+            "CASSANDRA_PORT" to "9042",
+            "CASSANDRA_KEYSPACE" to "stockdata",
+        )
 }

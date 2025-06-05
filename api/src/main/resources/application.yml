@@ -1,17 +1,25 @@
 server:
   port: 8080
   shutdown: graceful
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
 
 spring:
   application:
     name: stockifai-analysis-api
   data:
     cassandra:
-      contact-points: ${CASSANDRA_HOST:127.0.0.1}
+      contact-points: ${CASSANDRA_HOST:localhost}
       port: ${CASSANDRA_PORT:9042}
       local-datacenter: ${CASSANDRA_DATACENTER:datacenter1}
       keyspace-name: ${CASSANDRA_KEYSPACE:stock_keyspace}
       schema-action: CREATE_IF_NOT_EXISTS
+      request:
+        timeout: 5s
+        consistency: LOCAL_QUORUM
   security:
     oauth2:
       resourceserver:
@@ -23,13 +31,18 @@ management:
     web:
       exposure:
         include: health,info,prometheus,metrics
+      base-path: /actuator
   endpoint:
     health:
-      show-details: always
+      show-details: when-authorized
+      probes:
+        enabled: true
   metrics:
     export:
       prometheus:
         enabled: true
+    tags:
+      application: ${spring.application.name}
 
 influxdb:
   url: ${INFLUXDB_URL:http://localhost:8086}
@@ -37,30 +50,51 @@ influxdb:
   org: ${INFLUXDB_ORG:stockifai}
   bucket: ${INFLUXDB_BUCKET:stockdata}
 
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001}
+  security:
+    jwt:
+      enabled: ${JWT_ENABLED:false}
+  rate-limiting:
+    enabled: ${RATE_LIMITING_ENABLED:true}
+    requests-per-minute: ${RATE_LIMIT_RPM:100}
+
 logging:
   level:
     com.harshsbajwa.stockifai: INFO
     org.springframework.security: WARN
     com.datastax.oss.driver: WARN
+    org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
 ---
 spring:
   config:
     activate:
-      on-profile: docker
-  data:
-    cassandra:
-      contact-points: cassandra
-      port: 9042
-      local-datacenter: datacenter1
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: ${JWT_ISSUER_URI:#{null}}
+      on-profile: k3s-production
+      
+server:
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
 
-influxdb:
-  url: http://influxdb:8086
-  token: ${INFLUXDB_TOKEN:mySuperSecretToken123!}
-  org: ${INFLUXDB_ORG:stockifai}
-  bucket: ${INFLUXDB_BUCKET:stockdata}
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  security:
+    jwt:
+      enabled: true
+  rate-limiting:
+    enabled: true
+    requests-per-minute: 60
+
+logging:
+  level:
+    com.harshsbajwa.stockifai: INFO
+    org.springframework: WARN
+    root: WARN

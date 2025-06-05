@@ -26,11 +26,11 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
-    
+
     // Avro dependencies
     implementation("org.apache.avro:avro:1.11.3")
     implementation("io.confluent:kafka-avro-serializer:7.9.1")
-    
+
     // For @EnableRetry support
     implementation("org.springframework:spring-aspects")
     implementation("org.aspectj:aspectjweaver:1.9.19")
@@ -90,7 +90,7 @@ afterEvaluate {
     tasks.findByName("runKtlintCheckOverTestSourceSet")?.let { ktlintTask ->
         ktlintTask.dependsOn("generateTestAvroJava")
     }
-    
+
     tasks.findByName("runKtlintCheckOverMainSourceSet")?.let { ktlintTask ->
         ktlintTask.dependsOn("generateAvroJava")
     }

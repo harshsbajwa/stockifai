@@ -32,7 +32,7 @@ class EconomicControllerTest {
     @BeforeEach
     fun setUp() {
         sampleIndicatorResponse = EconomicIndicatorResponse(
-            seriesId = "VIXCLS",
+            series_id = "VIXCLS",
             observations = listOf(
                 EconomicObservation(
                     date = Instant.now().atZone(ZoneId.systemDefault()).toLocalDate(),
@@ -42,7 +42,7 @@ class EconomicControllerTest {
                 )
             ),
             metadata = EconomicIndicatorMetadata(
-                seriesId = "VIXCLS",
+                series_id = "VIXCLS",
                 title = "VIX Volatility Index",
                 frequency = "Daily",
                 units = "Index",
@@ -64,7 +64,7 @@ class EconomicControllerTest {
             .andExpect(status().isOk)
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.success").value(true))
-            .andExpect(jsonPath("$.data.seriesId").value("VIXCLS"))
+            .andExpect(jsonPath("$.data.series_id").value("VIXCLS"))
             .andExpect(jsonPath("$.data.observations[0].value").value(18.75))
             .andExpect(jsonPath("$.data.metadata.title").value("VIX Volatility Index"))
 
@@ -108,7 +108,7 @@ class EconomicControllerTest {
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.data").isArray)
-            .andExpect(jsonPath("$.data.data[0].seriesId").value("VIXCLS"))
+            .andExpect(jsonPath("$.data.data[0].series_id").value("VIXCLS"))
             .andExpect(jsonPath("$.data.page").value(0))
             .andExpect(jsonPath("$.data.totalElements").value(1))
 

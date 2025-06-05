@@ -10,7 +10,7 @@ interface StockCardProps {
 }
 
 const StockCard: React.FC<StockCardProps> = ({ stock, onClick }) => {
-  const isPositive = stock.priceChange >= 0;
+  const isPositive = (stock.priceChange ?? 0) >= 0;
   const changeIcon = isPositive ? ArrowUpRight : ArrowDownRight;
   const ChangeIcon = changeIcon;
 
@@ -34,14 +34,14 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick }) => {
               </p>
             </div>
             <div className="text-right">
-              <div className={`flex items-center ${getChangeColor(stock.priceChange)}`}>
+              <div className={`flex items-center ${getChangeColor(stock.priceChange ?? 0)}`}>
                 <ChangeIcon className="w-4 h-4 mr-1" />
                 <span className="font-medium">
-                  {formatPercentage(stock.priceChangePercent)}
+                  {formatPercentage(stock.priceChangePercent ?? 0)}
                 </span>
               </div>
-              <p className={`text-sm ${getChangeColor(stock.priceChange)}`}>
-                {isPositive ? '+' : ''}{formatCurrency(stock.priceChange)}
+              <p className={`text-sm ${getChangeColor(stock.priceChange ?? 0)}`}>
+                {isPositive ? '+' : ''}{formatCurrency(stock.priceChange ?? 0)}
               </p>
             </div>
           </div>

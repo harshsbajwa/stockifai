@@ -9,30 +9,31 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class StreamServiceLogicTest {
-
     private lateinit var objectMapper: ObjectMapper
 
     @BeforeEach
     fun setup() {
-        objectMapper = ObjectMapper().apply {
-            registerModule(KotlinModule.Builder().build())
-            findAndRegisterModules()
-        }
+        objectMapper =
+            ObjectMapper().apply {
+                registerModule(KotlinModule.Builder().build())
+                findAndRegisterModules()
+            }
     }
 
     @Test
     fun `FinnhubQuote serialization and deserialization works correctly`() {
         // Given
-        val finnhubQuote = FinnhubQuote(
-            currentPrice = 150.25,
-            highPriceOfDay = 152.0,
-            lowPriceOfDay = 148.0,
-            openPriceOfDay = 149.0,
-            previousClosePrice = 147.75,
-            timestamp = 1640995200L,
-            change = 2.5,
-            percentChange = 1.69
-        )
+        val finnhubQuote =
+            FinnhubQuote(
+                currentPrice = 150.25,
+                highPriceOfDay = 152.0,
+                lowPriceOfDay = 148.0,
+                openPriceOfDay = 149.0,
+                previousClosePrice = 147.75,
+                timestamp = 1640995200L,
+                change = 2.5,
+                percentChange = 1.69,
+            )
 
         // When
         val json = objectMapper.writeValueAsString(finnhubQuote)
@@ -42,7 +43,7 @@ class StreamServiceLogicTest {
         assertNotNull(json)
         assertTrue(json.contains("150.25"))
         assertTrue(json.contains("1.69"))
-        
+
         assertEquals(finnhubQuote.currentPrice, deserialized.currentPrice)
         assertEquals(finnhubQuote.highPriceOfDay, deserialized.highPriceOfDay)
         assertEquals(finnhubQuote.percentChange, deserialized.percentChange)
@@ -52,12 +53,13 @@ class StreamServiceLogicTest {
     @Test
     fun `FredObservation serialization works correctly`() {
         // Given
-        val observation = FredObservation(
-            date = "2023-12-31",
-            value = "18.75",
-            realtimeStart = "2023-12-31",
-            realtimeEnd = "2023-12-31"
-        )
+        val observation =
+            FredObservation(
+                date = "2023-12-31",
+                value = "18.75",
+                realtimeStart = "2023-12-31",
+                realtimeEnd = "2023-12-31",
+            )
 
         // When
         val json = objectMapper.writeValueAsString(observation)
@@ -67,7 +69,7 @@ class StreamServiceLogicTest {
         assertNotNull(json)
         assertTrue(json.contains("2023-12-31"))
         assertTrue(json.contains("18.75"))
-        
+
         assertEquals(observation.date, deserialized.date)
         assertEquals(observation.value, deserialized.value)
         assertEquals(observation.realtimeStart, deserialized.realtimeStart)
@@ -77,7 +79,8 @@ class StreamServiceLogicTest {
     @Test
     fun `FinnhubQuote deserialization handles all fields correctly`() {
         // Given
-        val json = """
+        val json =
+            """
             {
                 "c": 150.25,
                 "h": 152.0,
@@ -88,7 +91,7 @@ class StreamServiceLogicTest {
                 "d": 2.5,
                 "dp": 1.69
             }
-        """.trimIndent()
+            """.trimIndent()
 
         // When
         val quote = objectMapper.readValue(json, FinnhubQuote::class.java)
@@ -107,7 +110,8 @@ class StreamServiceLogicTest {
     @Test
     fun `FinnhubQuote handles null values gracefully`() {
         // Given
-        val json = """
+        val json =
+            """
             {
                 "c": null,
                 "h": null,
@@ -118,7 +122,7 @@ class StreamServiceLogicTest {
                 "d": null,
                 "dp": null
             }
-        """.trimIndent()
+            """.trimIndent()
 
         // When
         val quote = objectMapper.readValue(json, FinnhubQuote::class.java)
@@ -137,7 +141,8 @@ class StreamServiceLogicTest {
     @Test
     fun `FinnhubNews deserialization works correctly`() {
         // Given
-        val json = """
+        val json =
+            """
             {
                 "category": "general",
                 "datetime": 1640995200000,
@@ -149,7 +154,7 @@ class StreamServiceLogicTest {
                 "summary": "Test news summary",
                 "url": "https://example.com/news"
             }
-        """.trimIndent()
+            """.trimIndent()
 
         // When
         val news = objectMapper.readValue(json, FinnhubNews::class.java)
@@ -166,7 +171,8 @@ class StreamServiceLogicTest {
     @Test
     fun `FredSeriesResponse deserialization works correctly`() {
         // Given
-        val json = """
+        val json =
+            """
             {
                 "observations": [
                     {
@@ -183,7 +189,7 @@ class StreamServiceLogicTest {
                     }
                 ]
             }
-        """.trimIndent()
+            """.trimIndent()
 
         // When
         val response = objectMapper.readValue(json, FredSeriesResponse::class.java)
@@ -208,7 +214,7 @@ class StreamServiceLogicTest {
         // Then
         assertEquals(2L, metrics.successfulRequests.get())
         assertEquals(1L, metrics.failedRequests.get())
-        
+
         val total = metrics.successfulRequests.get() + metrics.failedRequests.get()
         val successRate = (metrics.successfulRequests.get() * 100.0) / total
         assertEquals(66.67, successRate, 0.01)

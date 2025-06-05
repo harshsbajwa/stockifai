@@ -10,7 +10,7 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
-import { formatCurrency, formatPercentage, formatDate, formatDateShort, getChangeColor, getTrendBadgeColor, getRiskBadgeColor } from '../utils/formatters';
+import { formatCurrency, formatPercentage, formatDate, formatDateShort, getChangeColor, getTrendBadgeColor, getRiskBadgeColor, getRiskColor } from '../utils/formatters';
 import { StockData, NewsItem, EconomicIndicator, MetricPoint, EconomicDataPoint, MarketOverview } from '../types';
 import clsx from 'clsx';
 
@@ -123,11 +123,11 @@ const Dashboard: React.FC = () => {
 
       <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
         {/* Market Overview Section */}
-        {marketError && <ErrorMessage message={`Market Overview Error: ${marketError.message}`} onRetry={() => window.location.reload()} />}
+        {marketError && <ErrorMessage message={`Market Overview Error: ${marketError}`} onRetry={() => window.location.reload()} />}
         {marketOverview && !marketError && (
           <section aria-labelledby="market-overview-title">
             <h2 id="market-overview-title" className="text-xl font-semibold text-gray-900 mb-4">Market Pulse</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {renderMarketOverviewCard("Sentiment", marketOverview.marketSentiment, 
                 marketOverview.marketSentiment === "BULLISH" ? <TrendingUp className="h-7 w-7 text-success-500"/> : 
                 marketOverview.marketSentiment === "BEARISH" ? <TrendingDown className="h-7 w-7 text-danger-500"/> : 
@@ -135,7 +135,6 @@ const Dashboard: React.FC = () => {
                 marketOverview.marketSentiment === "BULLISH" ? 'text-success-600' : 
                 marketOverview.marketSentiment === "BEARISH" ? 'text-danger-600' : 'text-yellow-600'
               )}
-              {renderMarketOverviewCard("Active Stocks", `${marketOverview.activeStocks} / ${marketOverview.totalStocks}`, <Briefcase className="h-7 w-7 text-blue-500"/>)}
               {renderMarketOverviewCard("Avg. Risk Score", marketOverview.averageRiskScore?.toFixed(1), <AlertTriangle className="h-7 w-7 text-orange-500"/>, getRiskColor(marketOverview.averageRiskScore ?? 0))}
               {renderMarketOverviewCard("High Risk Count", marketOverview.highRiskStocks?.length, <AlertTriangle className="h-7 w-7 text-red-500"/>, 'text-danger-600')}
             </div>
@@ -156,7 +155,7 @@ const Dashboard: React.FC = () => {
                 </CardHeader>
                 <CardBody className="p-0">
                   {stocksLoading && <div className="p-6 text-center"><LoadingSpinner /></div>}
-                  {stocksError && <div className="p-6"><ErrorMessage message={`Stocks Error: ${stocksError.message}`} onRetry={refetchStocks} /></div>}
+                  {stocksError && <div className="p-6"><ErrorMessage message={`Stocks Error: ${stocksError}`} onRetry={refetchStocks} /></div>}
                   {displayedStocks.length > 0 && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 max-h-[40rem] overflow-y-auto">
                       {displayedStocks.map((stock) => (
@@ -205,7 +204,7 @@ const Dashboard: React.FC = () => {
               </CardHeader>
               <CardBody>
                 {economicLoading && <div className="text-center"><LoadingSpinner /></div>}
-                {economicError && <ErrorMessage message={`Economic Data Error: ${economicError.message}`} />}
+                {economicError && <ErrorMessage message={`Economic Data Error: ${economicError}`} />}
                 {displayedEconomicIndicators.length > 0 && (
                   <div className="space-y-3 max-h-[18rem] overflow-y-auto">
                     {displayedEconomicIndicators.map((indicator) => (
@@ -242,7 +241,7 @@ const Dashboard: React.FC = () => {
               </CardHeader>
               <CardBody>
                 {newsLoading && <div className="text-center"><LoadingSpinner /></div>}
-                {newsError && <ErrorMessage message={`News Error: ${newsError.message}`} />}
+                {newsError && <ErrorMessage message={`News Error: ${newsError}`} />}
                 {displayedNews.length > 0 && (
                   <div className="space-y-3 max-h-[25rem] overflow-y-auto">
                     {displayedNews.map((item) => (
@@ -298,7 +297,7 @@ const Dashboard: React.FC = () => {
               </CardHeader>
               <CardBody className="flex-grow overflow-y-auto">
                 {stockTimeSeriesLoading && <div className="h-72 flex justify-center items-center"><LoadingSpinner size="lg" /></div>}
-                {stockTimeSeriesError && <ErrorMessage message={`Time Series Error: ${stockTimeSeriesError.message}`} onRetry={refetchStockTimeSeries}/>}
+                {stockTimeSeriesError && <ErrorMessage message={`Time Series Error: ${stockTimeSeriesError}`} onRetry={refetchStockTimeSeries}/>}
                 {stockTimeSeriesData && stockTimeSeriesData.metrics.length > 0 && (
                   <div className="h-72 md:h-80">
                     <ResponsiveContainer width="100%" height="100%">
@@ -362,8 +361,10 @@ const Dashboard: React.FC = () => {
                 </div>
               </CardHeader>
               <CardBody className="flex-grow overflow-y-auto">
-                {economicTimeSeriesLoading && <div className="h-72 flex justify-center items-center"><LoadingSpinner size="lg" /></div>}
-                {economicTimeSeriesError && <ErrorMessage message={`Economic Time Series Error: ${economicTimeSeriesError.message}`} onRetry={refetchEconomicTimeSeries}/>}
+                {economicTimeSeriesLoading && (
+                  <div className="h-72 flex justify-center items-center"><LoadingSpinner size="lg" /></div>
+                )}
+                {economicTimeSeriesError && <ErrorMessage message={`Economic Time Series Error: ${economicTimeSeriesError}`} onRetry={refetchEconomicTimeSeries}/>}
                 {economicTimeSeriesData && economicTimeSeriesData.length > 0 && (
                   <div className="h-72 md:h-80">
                     <ResponsiveContainer width="100%" height="100%">

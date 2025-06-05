@@ -7,24 +7,25 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class DataCollectionServiceUnitTest {
-
-    private val objectMapper = ObjectMapper().apply {
-        registerModule(KotlinModule.Builder().build())
-        findAndRegisterModules()
-    }
+    private val objectMapper =
+        ObjectMapper().apply {
+            registerModule(KotlinModule.Builder().build())
+            findAndRegisterModules()
+        }
 
     @Test
     fun `finnhub quote should serialize correctly`() {
-        val finnhubQuote = FinnhubQuote(
-            currentPrice = 150.25,
-            highPriceOfDay = 152.0,
-            lowPriceOfDay = 148.0,
-            openPriceOfDay = 149.0,
-            previousClosePrice = 147.75,
-            timestamp = 1640995200L,
-            change = 2.5,
-            percentChange = 1.69
-        )
+        val finnhubQuote =
+            FinnhubQuote(
+                currentPrice = 150.25,
+                highPriceOfDay = 152.0,
+                lowPriceOfDay = 148.0,
+                openPriceOfDay = 149.0,
+                previousClosePrice = 147.75,
+                timestamp = 1640995200L,
+                change = 2.5,
+                percentChange = 1.69,
+            )
 
         val json = objectMapper.writeValueAsString(finnhubQuote)
         assertNotNull(json)
@@ -39,12 +40,13 @@ class DataCollectionServiceUnitTest {
 
     @Test
     fun `fred observation should serialize correctly`() {
-        val fredObservation = FredObservation(
-            date = "2023-12-31",
-            value = "18.75",
-            realtimeStart = "2023-12-31",
-            realtimeEnd = "2023-12-31"
-        )
+        val fredObservation =
+            FredObservation(
+                date = "2023-12-31",
+                value = "18.75",
+                realtimeStart = "2023-12-31",
+                realtimeEnd = "2023-12-31",
+            )
 
         val json = objectMapper.writeValueAsString(fredObservation)
         assertNotNull(json)
@@ -59,7 +61,8 @@ class DataCollectionServiceUnitTest {
 
     @Test
     fun `finnhub quote should deserialize correctly from json`() {
-        val json = """
+        val json =
+            """
             {
                 "c": 150.25,
                 "h": 152.0,
@@ -70,7 +73,7 @@ class DataCollectionServiceUnitTest {
                 "d": 2.5,
                 "dp": 1.69
             }
-        """.trimIndent()
+            """.trimIndent()
 
         val quote = objectMapper.readValue(json, FinnhubQuote::class.java)
         assertNotNull(quote)
@@ -81,7 +84,8 @@ class DataCollectionServiceUnitTest {
 
     @Test
     fun `fred response should deserialize correctly`() {
-        val json = """
+        val json =
+            """
             {
                 "observations": [
                     {
@@ -92,7 +96,7 @@ class DataCollectionServiceUnitTest {
                     }
                 ]
             }
-        """.trimIndent()
+            """.trimIndent()
 
         val response = objectMapper.readValue(json, FredSeriesResponse::class.java)
         assertNotNull(response)

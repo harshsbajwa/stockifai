@@ -19,16 +19,17 @@ import kotlin.test.assertTrue
 @SpringBootTest(classes = [Application::class])
 @Import(TestStreamConfig::class)
 @ActiveProfiles("test")
-@TestPropertySource(properties = [
-    "app.collection.enabled=true",
-    "app.market.hours.only=false",
-    "app.stocks=AAPL,SPY",
-    "spring.kafka.bootstrap-servers=localhost:9092",
-    "app.finnhub.api.key=test-key",
-    "app.fred.api.key=test-key"
-])
+@TestPropertySource(
+    properties = [
+        "app.collection.enabled=true",
+        "app.market.hours.only=false",
+        "app.stocks=AAPL,SPY",
+        "spring.kafka.bootstrap-servers=localhost:9092",
+        "app.finnhub.api.key=test-key",
+        "app.fred.api.key=test-key",
+    ],
+)
 class DataCollectionServiceTest {
-
     @Autowired
     private lateinit var finnhubDataIngestor: FinnhubDataIngestor
 
@@ -45,8 +46,9 @@ class DataCollectionServiceTest {
     fun `finnhub service should initialize without errors`() {
         val mockSendResult = Mockito.mock(SendResult::class.java) as SendResult<String, Any>
         val mockFuture = CompletableFuture.completedFuture(mockSendResult)
-        
-        Mockito.`when`(kafkaTemplate.send(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
+
+        Mockito
+            .`when`(kafkaTemplate.send(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
             .thenReturn(mockFuture)
 
         assertNotNull(finnhubDataIngestor)
@@ -58,8 +60,9 @@ class DataCollectionServiceTest {
     fun `fred service should initialize without errors`() {
         val mockSendResult = Mockito.mock(SendResult::class.java) as SendResult<String, Any>
         val mockFuture = CompletableFuture.completedFuture(mockSendResult)
-        
-        Mockito.`when`(kafkaTemplate.send(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
+
+        Mockito
+            .`when`(kafkaTemplate.send(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
             .thenReturn(mockFuture)
 
         assertNotNull(fredDataIngestor)

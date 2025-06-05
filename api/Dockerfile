@@ -21,7 +21,7 @@ COPY api/src/ ./api/src/
 RUN chmod +x ./gradlew && ./gradlew :api:bootJar --no-daemon
 
 # Stage 2: Create the runtime image
-FROM bellsoft/liberica-runtime-container:jre-21-slim-stream-musl
+FROM bellsoft/liberica-runtime-container:jre-21-slim-stream-glibc
 WORKDIR /app
 
 COPY --from=builder /app/api/build/libs/api.jar app.jar

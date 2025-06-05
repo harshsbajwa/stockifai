@@ -1,0 +1,17 @@
+astra:
+  db:
+    secure-connect-bundle-path: ${ASTRA_SECURE_CONNECT_BUNDLE_PATH}
+    client-id: ${ASTRA_CLIENT_ID}
+    client-secret: ${ASTRA_CLIENT_SECRET}
+    keyspace-name: ${ASTRA_KEYSPACE_NAME}
+    local-datacenter: ${ASTRA_LOCAL_DATACENTER:#{null}}
+spring:
+  data:
+    cassandra:
+      keyspace-name: ${astra.db.keyspace-name}
+      schema-action: NONE
+influxdb:
+  url: ${INFLUXDB_CLOUD_URL}
+  token: ${INFLUXDB_CLOUD_TOKEN}
+  org: ${INFLUXDB_CLOUD_ORG}
+  bucket: ${INFLUXDB_CLOUD_BUCKET}

@@ -42,7 +42,7 @@ management:
         enabled: true
 
 app:
-  stocks: ${MONITORED_STOCKS:AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META,SPY,QQQ}
+  stocks: ${MONITORED_STOCKS:PANW,NVDA,AAPL,MSFT,RBLX,NFLX,PYPL,AB,GOOGL,DIS,TSLA,CRM,V,MU,AXP}
   alphavantage:
     api:
       key: ${ALPHAVANTAGE_API_KEY:#{null}}

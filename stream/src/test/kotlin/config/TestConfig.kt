@@ -16,15 +16,13 @@ import org.springframework.web.reactive.function.client.WebClient
 @TestConfiguration
 @Profile("test")
 class TestStreamConfig {
-
     @Bean
     @Primary
-    fun testObjectMapper(): ObjectMapper {
-        return ObjectMapper().apply {
+    fun testObjectMapper(): ObjectMapper =
+        ObjectMapper().apply {
             registerModule(KotlinModule.Builder().build())
             findAndRegisterModules()
         }
-    }
 
     @Bean
     @Primary
@@ -44,17 +42,15 @@ class TestStreamConfig {
 
     @Bean
     @Primary
-    fun testKafkaTemplate(producerFactory: ProducerFactory<String, Any>): KafkaTemplate<String, Any> {
-        return KafkaTemplate(producerFactory)
-    }
+    fun testKafkaTemplate(producerFactory: ProducerFactory<String, Any>): KafkaTemplate<String, Any> =
+        KafkaTemplate(producerFactory)
 
     @Bean
     @Primary
-    fun testWebClient(): WebClient {
-        return WebClient.builder()
+    fun testWebClient(): WebClient =
+        WebClient
+            .builder()
             .codecs { configurer ->
                 configurer.defaultCodecs().maxInMemorySize(1024 * 1024)
-            }
-            .build()
-    }
+            }.build()
 }

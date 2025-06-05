@@ -1,0 +1,14 @@
+spring:
+  data:
+    cassandra:
+      contact-points: cassandra
+      port: 9042
+      local-datacenter: datacenter1
+      keyspace-name: ${CASSANDRA_KEYSPACE:stock_keyspace}
+      schema-action: NONE
+
+influxdb:
+  url: http://influxdb:8086
+  token: ${INFLUXDB_TOKEN:mySuperSecretToken123!}
+  org: ${INFLUXDB_ORG:stockifai}
+  bucket: ${INFLUXDB_BUCKET:stockdata}

@@ -12,7 +12,7 @@
         <Logger name="org.apache.spark.sql.catalyst.expressions.codegen" level="WARN"/>
         
         <Logger name="org.apache.kafka" level="WARN"/>
-        <Logger name="com.harshsbajwa.stockifai" level="INFO"/>
+        <Logger name="com.harshsbajwa.stockifai" level="DEBUG"/>
         
         <Root level="INFO">
             <AppenderRef ref="Console"/>

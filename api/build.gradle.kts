@@ -31,6 +31,9 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
+    // Rate limiting
+    implementation("com.bucket4j:bucket4j_jdk17-core:8.14.0")
+
     // InfluxDB
     implementation("com.influxdb:influxdb-client-kotlin:7.3.0")
 

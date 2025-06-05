@@ -8,10 +8,11 @@ import org.springframework.data.domain.Pageable
 import org.springframework.data.domain.Slice
 import org.springframework.stereotype.Repository
 
-
 @Repository
 interface NewsRepository : CassandraRepository<NewsEntity, NewsPrimaryKey> {
-
-    @Query("SELECT * FROM news_by_time WHERE date_bucket = ?0 ORDER BY timestamp DESC, id ASC")
-    fun findByDateBucketOrderByTimestampDesc(dateBucket: String, pageable: Pageable): Slice<NewsEntity>
+    @Query("SELECT * FROM market_news WHERE date_bucket = ?0 ORDER BY timestamp DESC, id ASC")
+    fun findByDateBucketOrderByTimestampDesc(
+        dateBucket: String,
+        pageable: Pageable,
+    ): Slice<NewsEntity>
 }

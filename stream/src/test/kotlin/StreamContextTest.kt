@@ -9,14 +9,15 @@ import org.springframework.test.context.TestPropertySource
 
 @SpringBootTest(classes = [Application::class])
 @ActiveProfiles("test")
-@TestPropertySource(properties = [
-    "app.collection.enabled=false",
-    "spring.kafka.bootstrap-servers=localhost:9092",
-    "app.finnhub.api.key=test-key",
-    "app.fred.api.key=test-key"
-])
+@TestPropertySource(
+    properties = [
+        "app.collection.enabled=false",
+        "spring.kafka.bootstrap-servers=localhost:9092",
+        "app.finnhub.api.key=test-key",
+        "app.fred.api.key=test-key",
+    ],
+)
 class StreamContextTest {
-
     @MockBean
     private lateinit var kafkaTemplate: KafkaTemplate<String, String>
 

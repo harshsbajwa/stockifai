@@ -11,16 +11,11 @@ import org.springframework.context.annotation.Profile
 @TestConfiguration
 @Profile("test")
 class TestConfig {
+    @Bean
+    @Primary
+    fun mockInfluxDBClient(): InfluxDBClient = Mockito.mock(InfluxDBClient::class.java)
 
     @Bean
     @Primary
-    fun mockInfluxDBClient(): InfluxDBClient {
-        return Mockito.mock(InfluxDBClient::class.java)
-    }
-
-    @Bean
-    @Primary
-    fun mockCqlSession(): CqlSession {
-        return Mockito.mock(CqlSession::class.java)
-    }
+    fun mockCqlSession(): CqlSession = Mockito.mock(CqlSession::class.java)
 }

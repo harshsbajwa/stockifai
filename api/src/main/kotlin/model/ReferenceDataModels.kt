@@ -5,7 +5,6 @@ import org.springframework.data.cassandra.core.mapping.PrimaryKey
 import org.springframework.data.cassandra.core.mapping.Table
 import java.time.Instant
 
-
 @Table("instrument_metadata")
 data class InstrumentMetadata(
     @PrimaryKey val symbol: String,
@@ -16,21 +15,22 @@ data class InstrumentMetadata(
     val industry: String? = null,
     val description: String? = null,
     @Column("last_updated")
-    val lastUpdated: Instant? = null
+    val lastUpdated: Instant? = null,
 ) {
     constructor() : this("")
 }
 
 @Table("economic_indicator_metadata")
 data class EconomicIndicatorMetadata(
-    @PrimaryKey @Column("series_id") val seriesId: String,
+    @PrimaryKey
+    val series_id: String,
     val title: String? = null,
     val frequency: String? = null,
     val units: String? = null,
     val notes: String? = null,
     val source: String? = null,
     @Column("last_updated")
-    val lastUpdated: Instant? = null
+    val lastUpdated: Instant? = null,
 ) {
     constructor() : this("")
 }
