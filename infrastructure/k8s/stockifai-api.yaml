@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: stockifai-api
-        image: stockifai/api:latest
+        image: localhost:5000/stockifai/api:latest
         ports:
         - containerPort: 8080
         env:
@@ -77,10 +77,10 @@ metadata:
 spec:
   tls:
   - hosts:
-    - api.stockifai.yourdomain.com
+    - api.stockifai.amneet.me
     secretName: stockifai-api-tls
   rules:
-  - host: api.stockifai.yourdomain.com
+  - host: api.stockifai.amneet.me
     http:
       paths:
       - path: /

@@ -4,7 +4,6 @@ WORKDIR /app
 
 # Copy entire project structure for multi-module build
 COPY gradlew .
-COPY gradlew.bat .
 COPY gradle/ ./gradle/
 COPY build.gradle.kts .
 COPY settings.gradle.kts .
@@ -18,7 +17,7 @@ COPY stream/build.gradle.kts ./stream/
 # Copy Avro schemas and source code
 COPY spark/src/ ./spark/src/
 
-RUN chmod +x ./gradlew && ./gradlew :spark:jar --no-daemon
+RUN chmod +x ./gradlew && ./gradlew :spark:shadowJar --no-daemon
 
 # Stage 2: Prepare Spark runtime environment
 FROM bellsoft/liberica-runtime-container:jre-17-crac-glibc
@@ -38,20 +37,7 @@ RUN apk update && apk add --no-cache bash curl tar wget \
   && mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} ${SPARK_HOME} \
   && rm /tmp/spark.tgz
 
-# Download required Kafka and Avro jars for Spark
-RUN wget https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.12/${SPARK_VERSION}/spark-sql-kafka-0-10_2.12-${SPARK_VERSION}.jar -O ${SPARK_HOME}/jars/spark-sql-kafka-0-10_2.12-${SPARK_VERSION}.jar \
-  && wget https://repo1.maven.org/maven2/org/apache/spark/spark-avro_2.12/${SPARK_VERSION}/spark-avro_2.12-${SPARK_VERSION}.jar -O ${SPARK_HOME}/jars/spark-avro_2.12-${SPARK_VERSION}.jar \
-  && wget https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.5.0/kafka-clients-3.5.0.jar -O ${SPARK_HOME}/jars/kafka-clients-3.5.0.jar \
-  && wget https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar -O ${SPARK_HOME}/jars/commons-pool2-2.11.1.jar \
-  && wget https://packages.confluent.io/maven/io/confluent/kafka-avro-serializer/7.9.1/kafka-avro-serializer-7.9.1.jar -O ${SPARK_HOME}/jars/kafka-avro-serializer-7.9.1.jar \
-  && wget https://packages.confluent.io/maven/io/confluent/kafka-schema-registry-client/7.9.1/kafka-schema-registry-client-7.9.1.jar -O ${SPARK_HOME}/jars/kafka-schema-registry-client-7.9.1.jar \
-  && wget https://packages.confluent.io/maven/io/confluent/common-config/7.9.1/common-config-7.9.1.jar -O ${SPARK_HOME}/jars/common-config-7.9.1.jar \
-  && wget https://packages.confluent.io/maven/io/confluent/common-utils/7.9.1/common-utils-7.9.1.jar -O ${SPARK_HOME}/jars/common-utils-7.9.1.jar \
-  && wget https://repo1.maven.org/maven2/org/apache/avro/avro/1.11.3/avro-1.11.3.jar -O ${SPARK_HOME}/jars/avro-1.11.3.jar \
-  && wget https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-core/2.15.2/jackson-core-2.15.2.jar -O ${SPARK_HOME}/jars/jackson-core-2.15.2.jar \
-  && wget https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.15.2/jackson-databind-2.15.2.jar -O ${SPARK_HOME}/jars/jackson-databind-2.15.2.jar
-
-COPY --from=builder /app/spark/build/libs/spark-processor.jar ./app.jar
+COPY --from=builder /app/spark/build/libs/spark-processor-fat-latest.jar ./app.jar
 
 # Create Spark configuration files
 RUN echo "spark.serializer=org.apache.spark.serializer.KryoSerializer" > $SPARK_HOME/conf/spark-defaults.conf && \
@@ -102,4 +88,8 @@ ENV JAVA_OPTS="--add-opens=java.base/java.lang=ALL-UNNAMED \
 WORKDIR /opt/spark-app
 
 # Entry point to run the Spark application
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -cp /opt/spark-app/app.jar:/opt/spark/jars/* com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt"]
+ENTRYPOINT [ "/opt/spark/bin/spark-submit", \
+    "--class", "com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt", \
+    "--master", "local[*]", \
+    "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.apache.spark:spark-avro_2.12:3.5.5", \
+    "/opt/spark-app/app.jar" ]

@@ -4,7 +4,6 @@ WORKDIR /app
 
 # Copy entire project structure for multi-module build
 COPY gradlew .
-COPY gradlew.bat .
 COPY gradle/ ./gradle/
 COPY build.gradle.kts .
 COPY settings.gradle.kts .

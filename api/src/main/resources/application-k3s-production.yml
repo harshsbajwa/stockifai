@@ -1,10 +1,11 @@
 astra:
   db:
     secure-connect-bundle-path: ${ASTRA_SECURE_CONNECT_BUNDLE_PATH}
-    client-id: ${ASTRA_CLIENT_ID}
-    client-secret: ${ASTRA_CLIENT_SECRET}
+    application-token: ${ASTRA_DB_APPLICATION_TOKEN} 
+    # client-id: ${ASTRA_CLIENT_ID}
+    # client-secret: ${ASTRA_CLIENT_SECRET}
     keyspace-name: ${ASTRA_KEYSPACE_NAME}
-    local-datacenter: ${ASTRA_LOCAL_DATACENTER:#{null}}
+    # local-datacenter: ${ASTRA_LOCAL_DATACENTER:#{null}}
 spring:
   data:
     cassandra:

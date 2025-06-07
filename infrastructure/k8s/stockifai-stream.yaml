@@ -15,12 +15,16 @@ spec:
     spec:
       containers:
       - name: stockifai-stream
-        image: stockifai/stream:latest
+        image: localhost:5000/stockifai/stream:latest
         ports:
         - containerPort: 8080
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "k3s-production"
+        - name: APP_SCHEMA-REGISTRY-URL
+          value: "http://schema-registry.stockifai.svc.cluster.local:8081"
+        - name: SPRING_KAFKA_PRODUCER_PROPERTIES_SCHEMA_REGISTRY_URL
+          value: "http://schema-registry.stockifai.svc.cluster.local:8081"
         - name: KAFKA_BOOTSTRAP_SERVERS_K3S
           value: "kafka:9092"
         - name: SCHEMA_REGISTRY_URL_K3S

@@ -15,12 +15,12 @@ spec:
     spec:
       containers:
       - name: stockifai-spark
-        image: stockifai/spark:latest
+        image: localhost:5000/stockifai/spark:latest
         env:
         - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "kafka:9092"
+          value: "kafka.stockifai.svc.cluster.local:9092"
         - name: SCHEMA_REGISTRY_URL
-          value: "http://schema-registry:8081"
+          value: "http://schema-registry.stockifai.svc.cluster.local:8081"
         envFrom:
         - secretRef:
             name: stockifai-secrets

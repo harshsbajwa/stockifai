@@ -2,23 +2,3 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: stockifai
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: stockifai-secrets
-  namespace: stockifai
-type: Opaque
-stringData:
-  FINNHUB_API_KEY: ""
-  FRED_API_KEY: ""
-  ALPHAVANTAGE_API_KEY: ""
-  INFLUXDB_CLOUD_TOKEN: ""
-  INFLUXDB_CLOUD_URL: ""
-  INFLUXDB_CLOUD_ORG: ""
-  INFLUXDB_CLOUD_BUCKET: ""
-  ASTRA_SECURE_CONNECT_BUNDLE_PATH: ""
-  ASTRA_CLIENT_ID: ""
-  ASTRA_CLIENT_SECRET: ""
-  ASTRA_KEYSPACE_NAME: ""
-  ASTRA_LOCAL_DATACENTER: ""

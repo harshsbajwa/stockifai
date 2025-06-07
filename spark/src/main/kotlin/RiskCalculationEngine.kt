@@ -128,62 +128,48 @@ object RiskCalculationEngine {
 
     private fun initializeDatabaseConnections() {
         // InfluxDB
-        val influxUrl = System.getenv("INFLUXDB_URL") ?: "http://localhost:8086"
-        val influxTokenEnv = System.getenv("INFLUXDB_TOKEN")
-        val influxOrgEnv = System.getenv("INFLUXDB_ORG")
+        val influxUrl = System.getenv("INFLUXDB_CLOUD_URL") ?: System.getenv("INFLUXDB_URL") ?: "http://localhost:8086"
+        val influxTokenEnv = System.getenv("INFLUXDB_CLOUD_TOKEN") ?: System.getenv("INFLUXDB_TOKEN")
+        val influxOrgEnv = System.getenv("INFLUXDB_CLOUD_ORG") ?: System.getenv("INFLUXDB_ORG")
         val defaultInfluxBucket = System.getenv("INFLUXDB_BUCKET") ?: "stockdata"
 
         if (influxTokenEnv.isNullOrBlank() || influxOrgEnv.isNullOrBlank()) {
             logger.error(
-                "INFLUXDB_TOKEN and/or INFLUXDB_ORG are not provided. InfluxDB client cannot be initialized. Exiting.",
+                "INFLUXDB_TOKEN/INFLUXDB_CLOUD_TOKEN and/or INFLUXDB_ORG/INFLUXDB_CLOUD_ORG are not provided. InfluxDB client cannot be initialized. Exiting.",
             )
             exitProcess(1)
         }
-
         logger.info("Initializing InfluxDB client: URL={}, Org={}", influxUrl, influxOrgEnv)
-        influxDBClient =
-            InfluxDBClientFactory.create(influxUrl, influxTokenEnv.toCharArray(), influxOrgEnv, defaultInfluxBucket)
+        influxDBClient = InfluxDBClientFactory.create(influxUrl, influxTokenEnv.toCharArray(), influxOrgEnv, defaultInfluxBucket)
         try {
             logger.info("InfluxDB client initialized. Ping: ${influxDBClient.ping()}")
         } catch (e: Exception) {
             logger.error("Failed to check InfluxDB health: ${e.message}", e)
-            exitProcess(1)
         }
+
 
         // AstraDB/Cassandra
         val astraSecureBundlePath = System.getenv("ASTRA_SECURE_CONNECT_BUNDLE_PATH")
-        val astraClientIdEnv = System.getenv("ASTRA_CLIENT_ID")
-        val astraClientSecretEnv = System.getenv("ASTRA_CLIENT_SECRET")
-
-        val useAstra =
-            !astraSecureBundlePath.isNullOrBlank() &&
-                !astraClientIdEnv.isNullOrBlank() &&
-                !astraClientSecretEnv.isNullOrBlank()
-
-        val keyspaceName = System.getenv("CASSANDRA_KEYSPACE") ?: "stock_keyspace"
-        val defaultLocalDatacenter = System.getenv("CASSANDRA_LOCAL_DATACENTER") ?: "datacenter1"
-
+        val astraToken = System.getenv("ASTRA_DB_APPLICATION_TOKEN")
+        val useAstra = !astraSecureBundlePath.isNullOrBlank() && !astraToken.isNullOrBlank()
+        val keyspaceName = System.getenv("ASTRA_KEYSPACE_NAME") ?: System.getenv("CASSANDRA_KEYSPACE") ?: "stock_keyspace"
+        
         if (useAstra) {
-            logger.info("Attempting to connect to AstraDB using Secure Connect Bundle...")
-            val astraLocalDatacenter = System.getenv("ASTRA_LOCAL_DATACENTER")
-
-            val sessionBuilder: CqlSessionBuilder =
-                CqlSession
-                    .builder()
-                    .withCloudSecureConnectBundle(
-                        java.nio.file.Paths
-                            .get(astraSecureBundlePath!!),
-                    ).withAuthCredentials(astraClientIdEnv!!, astraClientSecretEnv!!)
-                    .withKeyspace(keyspaceName)
-            astraLocalDatacenter?.let { if (it.isNotBlank()) sessionBuilder.withLocalDatacenter(it) }
-            cassandraSession = sessionBuilder.build()
+            logger.info("Attempting to connect to AstraDB using Secure Connect Bundle and App Token...")
+            cassandraSession = CqlSession.builder()
+                .withCloudSecureConnectBundle(java.nio.file.Paths.get(astraSecureBundlePath!!))
+                .withAuthCredentials("token", astraToken!!)
+                .withKeyspace(keyspaceName)
+                .build()
             logger.info("AstraDB session initialized for keyspace {}.", keyspaceName)
         } else {
             logger.info("Attempting to connect to standard Cassandra (non-AstraDB)...")
             val cassandraHost = System.getenv("CASSANDRA_HOST") ?: "localhost"
             val cassandraPortStr = System.getenv("CASSANDRA_PORT") ?: "9042"
             val cassandraPort = cassandraPortStr.toIntOrNull() ?: 9042
-
+            
+            val defaultLocalDatacenter = System.getenv("CASSANDRA_LOCAL_DATACENTER") ?: "datacenter1"
+            
             if (cassandraHost.isBlank()) {
                 logger.error("CASSANDRA_HOST is not set for standard Cassandra connection. Exiting.")
                 exitProcess(1)
@@ -205,7 +191,7 @@ object RiskCalculationEngine {
                     .build()
             logger.info("Standard Cassandra session initialized for keyspace {}.", keyspaceName)
         }
-        logger.info("Cassandra (AstraDB or Standard) schema check complete.")
+        logger.info("Cassandra (AstraDB or Standard) connection established.")
     }
 
     class AvroDeserializeUDF(

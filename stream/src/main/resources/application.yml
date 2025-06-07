@@ -24,7 +24,7 @@ spring:
         retry.backoff.ms: 100
         request.timeout.ms: 30000
         delivery.timeout.ms: 120000
-        schema.registry.url: http://schema-registry:8081
+        schema.registry.url: ${app.schema-registry-url}
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
 
@@ -42,6 +42,7 @@ management:
         enabled: true
 
 app:
+  schema-registry-url: ${SCHEMA_REGISTRY_URL_K3S:http://localhost:8081}
   stocks: ${MONITORED_STOCKS:PANW,NVDA,AAPL,MSFT,RBLX,NFLX,PYPL,AB,GOOGL,DIS,TSLA,CRM,V,MU,AXP}
   alphavantage:
     api:

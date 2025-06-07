@@ -4,6 +4,7 @@ plugins {
     kotlin("jvm")
     application
     id("com.github.davidmc24.gradle.plugin.avro") version "1.9.1"
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 description = "Processes real-time data streams using Apache Spark Structured Streaming"
@@ -189,31 +190,23 @@ tasks.test {
     }
 }
 
-tasks.jar {
-    enabled = true
-    archiveFileName.set("spark-processor.jar")
+tasks.shadowJar {
+    archiveBaseName.set("spark-processor-fat")
+    archiveClassifier.set("")
+    archiveVersion.set("latest")
     isZip64 = true
-
-    manifest {
-        attributes(
-            "Main-Class" to "com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt",
-            "Implementation-Title" to project.name,
-            "Implementation-Version" to project.version,
-            "Class-Path" to configurations.runtimeClasspath.get().joinToString(" ") { it.name },
-        )
+    mergeServiceFiles()
+    
+    dependencies {
+        exclude(dependency("org.apache.spark:.*"))
+        exclude(dependency("org.scala-lang:.*"))
+        exclude(dependency("com.fasterxml.jackson.core:.*"))
+        exclude(dependency("com.fasterxml.jackson.module:.*"))
     }
+}
 
-    from(
-        configurations.runtimeClasspath.get().map {
-            if (it.isDirectory) it else zipTree(it)
-        },
-    ) {
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-        exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
-        exclude("META-INF/DEPENDENCIES")
-        exclude("META-INF/LICENSE*")
-        exclude("META-INF/NOTICE*")
-    }
+tasks.build {
+    dependsOn(tasks.shadowJar)
 }
 
 tasks.register<JavaExec>("runLocal") {

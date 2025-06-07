@@ -1,145 +1,91 @@
 package com.harshsbajwa.stockifai.api.config
 
 import com.datastax.oss.driver.api.core.CqlSession
+import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
-// import org.springframework.boot.autoconfigure.cassandra.CassandraProperties`
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.context.annotation.Primary
 import org.springframework.context.annotation.Profile
-import org.springframework.data.cassandra.config.AbstractCassandraConfiguration
-import org.springframework.data.cassandra.config.SchemaAction
-import org.springframework.data.cassandra.config.SessionBuilderConfigurer
+import org.springframework.data.cassandra.core.CassandraTemplate
+import org.springframework.data.cassandra.core.convert.CassandraConverter
+import org.springframework.data.cassandra.core.convert.MappingCassandraConverter
+import org.springframework.data.cassandra.core.mapping.CassandraMappingContext
+import org.springframework.data.cassandra.repository.config.EnableCassandraRepositories
 import java.net.InetSocketAddress
 import java.nio.file.Paths
 
 @Configuration
+@EnableCassandraRepositories(basePackages = ["com.harshsbajwa.stockifai.api.repository"])
 class CassandraConfig {
-    companion object {
-        private val logger = LoggerFactory.getLogger(CassandraConfig::class.java)
+
+    private val logger = LoggerFactory.getLogger(CassandraConfig::class.java)
+
+    @Bean
+    fun cassandraMappingContext(): CassandraMappingContext {
+        return CassandraMappingContext()
     }
 
-    @Configuration
-    @Profile("!local-docker")
-    @ConditionalOnProperty(
-        prefix = "astra.db",
-        name = ["secure-connect-bundle-path", "client-id", "client-secret"],
-    )
-    class AstraCassandraConfiguration : AbstractCassandraConfiguration() {
-        @Value("\${astra.db.keyspace-name}")
-        private lateinit var keyspaceNameValue: String
+    @Bean
+    fun cassandraConverter(cqlSession: CqlSession, mappingContext: CassandraMappingContext): CassandraConverter {
+        return MappingCassandraConverter(mappingContext)
+    }
 
-        @Value("\${astra.db.secure-connect-bundle-path}")
-        private lateinit var cloudSecureConnectBundlePath: String
+    @Bean
+    fun cassandraTemplate(cqlSession: CqlSession, converter: CassandraConverter): CassandraTemplate {
+        return CassandraTemplate(cqlSession, converter)
+    }
 
-        @Value("\${astra.db.client-id}")
-        private lateinit var clientIdValue: String
-
-        @Value("\${astra.db.client-secret}")
-        private lateinit var clientSecretValue: String
-
-        @Value("\${astra.db.local-datacenter:#{null}}")
-        private var localDatacenter: String? = null
-
-        init {
-            logger.info("AstraDB Cassandra Configuration activated.")
-            logger.info(
-                "AstraDB details: keyspace={}, bundlePath={}, localDatacenter={}",
-                keyspaceNameValue,
-                cloudSecureConnectBundlePath,
-                localDatacenter ?: "not set",
-            )
-        }
-
-        override fun getKeyspaceName(): String = keyspaceNameValue
-
-        override fun getSchemaAction(): SchemaAction = SchemaAction.NONE
-
-        @Bean
-        @Primary
-        fun cassandraSessionBuilderConfigurer(): SessionBuilderConfigurer {
-            logger.info(
-                "Configuring SessionBuilder for AstraDB with SCB: {} and credentials.",
-                cloudSecureConnectBundlePath,
-            )
-            return SessionBuilderConfigurer { sessionBuilder ->
-                sessionBuilder
-                    .withCloudSecureConnectBundle(Paths.get(cloudSecureConnectBundlePath))
-                    .withAuthCredentials(clientIdValue, clientSecretValue)
-                    .also { builder ->
-                        localDatacenter?.let { dc ->
-                            if (dc.isNotBlank()) {
-                                logger.info("Setting local datacenter for AstraDB: {}", dc)
-                                builder.withLocalDatacenter(dc)
-                            }
-                        }
-                    }
-            }
+    @Bean("cqlSession")
+    @Profile("k3s-production")
+    fun astraCqlSession(
+        @Value("\${astra.db.keyspace-name}") keyspaceNameValue: String,
+        @Value("\${astra.db.secure-connect-bundle-path}") cloudSecureConnectBundlePath: String,
+        @Value("\${astra.db.application-token}") applicationToken: String
+    ): CqlSession {
+        logger.info("Profile 'k3s-production' active. Building CqlSession for AstraDB.")
+        logger.info("AstraDB details: keyspace={}, bundlePath={}", keyspaceNameValue, cloudSecureConnectBundlePath)
+        
+        try {
+            return CqlSession.builder()
+                .withCloudSecureConnectBundle(Paths.get(cloudSecureConnectBundlePath))
+                .withAuthCredentials("token", applicationToken)
+                .withKeyspace(keyspaceNameValue)
+                .build()
+                .also { logger.info("Successfully built CqlSession for AstraDB.") }
+        } catch (e: Exception) {
+            logger.error("Failed to build CqlSession for AstraDB: ${e.message}", e)
+            throw e
         }
     }
 
-    @Configuration
+    @Bean("cqlSession")
     @Profile("local-docker")
-    class LocalDockerCassandraConfiguration {
-        @Value("\${spring.data.cassandra.contact-points:cassandra}")
-        private lateinit var contactPointsValue: String
+    fun localDockerCqlSession(
+        @Value("\${spring.data.cassandra.contact-points:cassandra}") contactPointsValue: String,
+        @Value("\${spring.data.cassandra.port:9042}") portValue: Int,
+        @Value("\${spring.data.cassandra.local-datacenter:datacenter1}") localDatacenterValue: String,
+        @Value("\${spring.data.cassandra.keyspace-name:stock_keyspace}") keyspaceNameValue: String
+    ): CqlSession {
+        logger.info("Profile 'local-docker' active. Building CqlSession for local Cassandra.")
+        logger.info(
+            "Local Cassandra details: points={}, port={}, dc={}, keyspace={}",
+            contactPointsValue, portValue, localDatacenterValue, keyspaceNameValue
+        )
 
-        @Value("\${spring.data.cassandra.port:9042}")
-        private var portValue: Int = 9042
+        val contactPointAddresses = contactPointsValue.split(',').map { InetSocketAddress(it.trim(), portValue) }
 
-        @Value("\${spring.data.cassandra.local-datacenter:datacenter1}")
-        private lateinit var localDatacenterValue: String
-
-        @Value("\${spring.data.cassandra.keyspace-name:stock_keyspace}")
-        private lateinit var keyspaceNameValue: String
-
-        init {
-            logger.info("Local Docker Cassandra Configuration activated.")
-        }
-
-        @Bean
-        @Primary
-        fun localDockerCqlSession(): CqlSession {
-            logger.info(
-                "Building CqlSession for local-docker: contact-points={}, port={}, local-datacenter={}, keyspace={}",
-                contactPointsValue,
-                portValue,
-                localDatacenterValue,
-                keyspaceNameValue,
-            )
-
-            val contactPointAddresses =
-                contactPointsValue
-                    .split(',')
-                    .map { InetSocketAddress(it.trim(), portValue) }
-
-            if (contactPointAddresses.isEmpty()) {
-                val errorMessage = "Cassandra contact points are not configured correctly for local-docker profile. Value was: '$contactPointsValue'"
-                logger.error(errorMessage)
-                throw IllegalStateException(errorMessage)
-            }
-            logger.info("Resolved InetSocketAddresses for local-docker: {}", contactPointAddresses)
-
-            try {
-                return CqlSession
-                    .builder()
-                    .addContactPoints(contactPointAddresses)
-                    .withLocalDatacenter(localDatacenterValue)
-                    .withKeyspace(keyspaceNameValue)
-                    .build()
-                    .also {
-                        logger.info(
-                            "Successfully built CqlSession for local-docker to {}:{}",
-                            contactPointsValue,
-                            portValue,
-                        )
-                    }
-            } catch (e: Exception) {
-                logger.error("Failed to build CqlSession for local-docker: ${e.message}", e)
-                throw e
-            }
+        try {
+            return CqlSession.builder()
+                .addContactPoints(contactPointAddresses)
+                .withLocalDatacenter(localDatacenterValue)
+                .withKeyspace(keyspaceNameValue)
+                .build()
+                .also { logger.info("Successfully built CqlSession for local Docker to {}:{}", contactPointsValue, portValue) }
+        } catch (e: Exception) {
+            logger.error("Failed to build CqlSession for local-docker: ${e.message}", e)
+            throw e
         }
     }
 }
+
