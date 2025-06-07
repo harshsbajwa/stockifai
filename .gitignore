@@ -19,3 +19,6 @@ node_modules/
 # Ignore Pub Files
 pubspec.lock
 .dart_tool/
+
+# Terraform
+.terraform/
