@@ -1,0 +1,65 @@
+---
+- name: Deploy StockifAI Application
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    namespace: stockifai
+    app_version: "{{ app_version | default('latest') }}"
+  
+  tasks:
+    - name: Ensure namespace exists
+      kubernetes.core.k8s:
+        name: "{{ namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: "{{ k3s_kubeconfig }}"
+
+    - name: Deploy Kafka and Zookeeper
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+        kubeconfig: "{{ k3s_kubeconfig }}"
+      with_file:
+        - "../k8s/kafka-zookeeper.yaml"
+
+    - name: Deploy StockifAI API
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+        kubeconfig: "{{ k3s_kubeconfig }}"
+      with_file:
+        - "../k8s/stockifai-api.yaml"
+
+    - name: Deploy StockifAI Stream
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+        kubeconfig: "{{ k3s_kubeconfig }}"
+      with_file:
+        - "../k8s/stockifai-stream.yaml"
+
+    - name: Deploy StockifAI Spark
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+        kubeconfig: "{{ k3s_kubeconfig }}"
+      with_file:
+        - "../k8s/stockifai-spark.yaml"
+
+    - name: Wait for deployments to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ namespace }}"
+        name: "{{ item }}"
+        kubeconfig: "{{ k3s_kubeconfig }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      loop:
+        - stockifai-api
+        - stockifai-stream
+        - stockifai-spark

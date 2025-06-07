@@ -1,0 +1,9 @@
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_user: "{{ ansible_env.USER }}"
+  vars:
+    k3s_kubeconfig: "{{ ansible_env.HOME }}/.kube/config"
+    domain_name: "amneet.me"
+    cloudflare_tunnel_id: "{{ ansible_env.TUNNEL_ID }}"
