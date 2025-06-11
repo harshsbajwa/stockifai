@@ -49,7 +49,7 @@ class NewsService(
             logger.info("Total news items fetched from Cassandra across all buckets: {}", news.size)
 
             val cutoffTime = Instant.now().minus(hours, ChronoUnit.HOURS)
-            logger.info("Filtering collected news to only include items after {}.", cutoffTime)
+	    logger.info("Filtering collected news to only include items after {}.", cutoffTime)
 
             val filteredNews = news
                 .filter { Instant.ofEpochMilli(it.primaryKey.timestamp).isAfter(cutoffTime) }

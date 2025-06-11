@@ -32,7 +32,7 @@ class SecurityConfig {
                 .authorizeHttpRequests { authorize ->
                     authorize
                         .requestMatchers(
-                            "/actuator/health",
+                            "/actuator/health/**",
                             "/actuator/prometheus",
                             "/actuator/info",
                             "/actuator/metrics",
@@ -63,16 +63,14 @@ class SecurityConfig {
     }
 
     @Bean
+    @Profile("!k3s-production")
     fun corsConfigurationSource(): CorsConfigurationSource {
         val configuration = CorsConfiguration()
-
         configuration.allowedOrigins = allowedOrigins.split(",").map { it.trim() }
-
         configuration.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
         configuration.allowedHeaders = listOf("*")
         configuration.allowCredentials = true
         configuration.maxAge = 3600
-
         val source = UrlBasedCorsConfigurationSource()
         source.registerCorsConfiguration("/**", configuration)
         return source
@@ -82,17 +80,13 @@ class SecurityConfig {
     @Profile("k3s-production")
     class ProductionSecurityConfig {
         @Bean
-        fun productionCorsConfigurationSource(): CorsConfigurationSource {
+        fun corsConfigurationSource(): CorsConfigurationSource {
             val configuration = CorsConfiguration()
-            configuration.allowedOriginPatterns =
-                listOf(
-                    "",
-                )
+            configuration.allowedOriginPatterns = listOf("*")
             configuration.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
             configuration.allowedHeaders = listOf("*")
             configuration.allowCredentials = true
             configuration.maxAge = 3600
-
             val source = UrlBasedCorsConfigurationSource()
             source.registerCorsConfiguration("/**", configuration)
             return source

@@ -51,7 +51,7 @@ data class CalculatedRiskMetrics(
 )
 
 data class ProcessedNews(
-    val id: String = UUID.randomUUID().toString(),
+    val id: UUID,
     val headline: String,
     val summary: String,
     val sentiment: String,
@@ -634,6 +634,7 @@ object RiskCalculationEngine {
                 val timestampSql = row.getAs<java.sql.Timestamp>("datetime")
                 val source = row.getAs<String>("source")
                 val relatedSymbol = row.getAs<String>("related")
+		val url = row.getAs<String>("url")
 
                 if (headline.isNullOrBlank() || summary.isNullOrBlank() || timestampSql == null) {
                     logger.warn("Skipping news item due to missing headline, summary, or datetime.")
@@ -641,8 +642,12 @@ object RiskCalculationEngine {
                 }
                 val timestampValue = timestampSql.time
 
+		val uniqueIdentifierString = headline + url
+		val deterministicUuid = UUID.nameUUIDFromBytes(uniqueIdentifierString.toByteArray())
+
                 val processedNews =
                     ProcessedNews(
+			id = deterministicUuid,
                         headline = headline,
                         summary = summary,
                         sentiment = analyzeSentiment(headline, summary),
@@ -885,7 +890,6 @@ object RiskCalculationEngine {
 
     private fun writeNewsToCassandra(news: ProcessedNews) {
         try {
-            val newsId = UUID.fromString(news.id)
             val dateBucket =
                 LocalDate
                     .ofInstant(
@@ -903,7 +907,7 @@ object RiskCalculationEngine {
                 )
             cassandraSession.execute(
                 stmt.bind(
-                    newsId,
+                    news.id,
                     dateBucket,
                     news.timestamp,
                     news.headline,

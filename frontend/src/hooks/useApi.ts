@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export interface UseApiState<T> {
   data: T | null;
@@ -15,10 +15,10 @@ export function useApi<T>(
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
       const result = await apiCall();
       setData(result);
     } catch (err) {
@@ -27,49 +27,59 @@ export function useApi<T>(
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiCall]);
 
   useEffect(() => {
     fetchData();
-  }, dependencies);
-
-  const refetch = () => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData, ...dependencies]);
+  
+  const refetch = useCallback(() => {
     fetchData();
-  };
+  }, [fetchData]);
 
   return { data, loading, error, refetch };
 }
 
 export function usePolling<T>(
   apiCall: () => Promise<T>,
-  interval: number = 30000, // 30 seconds default
+  interval: number = 30000,
   dependencies: React.DependencyList = []
 ): UseApiState<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    try {
+  const fetchData = useCallback(
+    async (isInitial: boolean) => {
+      if (isInitial) {
+        setLoading(true);
+      }
       setError(null);
-      const result = await apiCall();
-      setData(result);
-      if (loading) setLoading(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      if (loading) setLoading(false);
-    }
-  };
+      try {
+        const result = await apiCall();
+        setData(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        if (isInitial) {
+          setLoading(false);
+        }
+      }
+    },
+    [apiCall]
+  );
 
   useEffect(() => {
-    fetchData();
-    const intervalId = setInterval(fetchData, interval);
-    return () => clearInterval(intervalId);
-  }, dependencies);
+    fetchData(true);
+    const intervalId = setInterval(() => fetchData(false), interval);
+     return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData, interval, ...dependencies]);
 
-  const refetch = () => {
-    fetchData();
-  };
+  const refetch = useCallback(() => {
+    fetchData(true);
+  }, [fetchData]);
 
   return { data, loading, error, refetch };
 }

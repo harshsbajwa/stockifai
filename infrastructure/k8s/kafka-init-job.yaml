@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topic-init-job
+  namespace: stockifai
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox:1.36
+          command:
+            - "sh"
+            - "-c"
+            - |
+              echo "Waiting for Kafka broker to be ready..."
+              until nc -zv kafka.stockifai.svc.cluster.local 9092; do
+                echo "Kafka not ready, sleeping for 5s..."
+                sleep 5
+              done
+              echo "Kafka is ready!"
+      containers:
+        - name: kafka-topic-creator
+          image: confluentinc/cp-kafka:7.6.0
+          command:
+            - "sh"
+            - "-c"
+            - |
+              KAFKA_BROKER="kafka.stockifai.svc.cluster.local:9092"
+              echo "Using Kafka broker at $KAFKA_BROKER"
+
+              TOPICS=(
+                "finnhub-ohlcv-data"
+                "finnhub-market-news-data"
+                "fred-economic-observations-data"
+              )
+
+              for TOPIC in "${TOPICS[@]}"; do
+                echo "Attempting to create topic: $TOPIC"
+                kafka-topics --bootstrap-server $KAFKA_BROKER --create --if-not-exists --topic "$TOPIC" --partitions 3 --replication-factor 1
+                if [ $? -eq 0 ]; then
+                  echo "Topic $TOPIC created successfully or already exists."
+                else
+                  echo "ERROR: Failed to create topic $TOPIC."
+                  exit 1
+                fi
+              done
+
+              echo "All Kafka topics have been ensured."
+              kafka-topics --bootstrap-server $KAFKA_BROKER --list
+      restartPolicy: OnFailure
+  backoffLimit: 5

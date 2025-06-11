@@ -42,7 +42,7 @@ management:
         enabled: true
 
 app:
-  schema-registry-url: ${spring.kafka.producer.properties.schema.registry.url}
+  schema-registry-url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
   stocks: ${MONITORED_STOCKS:PANW,NVDA,AAPL,MSFT,RBLX,NFLX,PYPL,AB,GOOGL,DIS,TSLA,CRM,V,MU,AXP}
   alphavantage:
     api:
@@ -73,4 +73,5 @@ spring:
       on-profile: docker
   kafka:
     bootstrap-servers: kafka:9093
-    schema-registry-url: http://schema-registry:8081
+app:
+  schema-registry-url: http://schema-registry:8081

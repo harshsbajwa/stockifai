@@ -12,6 +12,7 @@ spring:
       group-id: test-group
 
 app:
+  schema-registry-url: http://mock-schema-registry:8081
   collection:
     enabled: false
   market:

@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StockAPI, MarketAPI, NewsAPI, EconomicAPI } from '../services/api';
 import { usePolling } from '../hooks/useApi';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorMessage from '../components/common/ErrorMessage';
 import { Card, CardHeader, CardBody } from '../components/common/Card';
 import { 
-  TrendingUp, TrendingDown, AlertTriangle, Activity, X, BarChart3, DollarSign, Newspaper, Briefcase, LineChart as LineChartIcon
+  TrendingUp, TrendingDown, AlertTriangle, Activity, X, BarChart3, DollarSign, Newspaper
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
-import { formatCurrency, formatPercentage, formatDate, formatDateShort, getChangeColor, getTrendBadgeColor, getRiskBadgeColor, getRiskColor } from '../utils/formatters';
-import { StockData, NewsItem, EconomicIndicator, MetricPoint, EconomicDataPoint, MarketOverview } from '../types';
+import { formatCurrency, formatPercentage, formatDateShort, getChangeColor, getTrendBadgeColor, getRiskBadgeColor, getRiskColor } from '../utils/formatters';
+import { StockData, EconomicIndicator } from '../types';
 import clsx from 'clsx';
 
 const POLLING_INTERVAL_PRIMARY = 30000;
@@ -20,7 +20,6 @@ const POLLING_INTERVAL_NEWS = 900000;
 
 const Dashboard: React.FC = () => {
   const [selectedStockSymbol, setSelectedStockSymbol] = useState<string | null>(null);
-  const [selectedStockData, setSelectedStockData] = useState<StockData | null>(null);
   const [selectedEconomicIndicatorId, setSelectedEconomicIndicatorId] = useState<string | null>(null);
   
   const [stockTimeSeriesRangeHours, setStockTimeSeriesRangeHours] = useState<number>(24);
@@ -45,7 +44,7 @@ const Dashboard: React.FC = () => {
       [selectedStockSymbol, stockTimeSeriesRangeHours]
     );
   
-  const { data: currentSelectedStockSummary, loading: currentSelectedStockSummaryLoading, error: currentSelectedStockSummaryError, refetch: refetchCurrentSelectedStockSummary } =
+  const { data: currentSelectedStockSummary, refetch: refetchCurrentSelectedStockSummary } =  
     usePolling(
       () => selectedStockSymbol ? StockAPI.getStockSummary(selectedStockSymbol) : Promise.resolve(null),
       POLLING_INTERVAL_PRIMARY,
@@ -61,7 +60,6 @@ const Dashboard: React.FC = () => {
 
   const handleStockCardClick = (stock: StockData) => {
     setSelectedStockSymbol(stock.symbol);
-    setSelectedStockData(stock);
     refetchStockTimeSeries();
     refetchCurrentSelectedStockSummary();
   };

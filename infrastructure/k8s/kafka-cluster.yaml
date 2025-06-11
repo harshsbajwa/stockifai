@@ -147,13 +147,15 @@ spec:
           value: "1"
         - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
           value: "1"
+        - name: KAFKA_HEAP_OPTS
+          value: "-Xms256m -Xmx512m"
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "300Mi"
+            cpu: "50m"
           limits:
-            memory: "2Gi"
-            cpu: "1000m"
+            memory: "700Mi"
+            cpu: "300m"
       - name: health-checker
         image: busybox:1.36
         command: ["/bin/sh", "-c", "sleep infinity"]

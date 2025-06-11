@@ -38,7 +38,7 @@ class StreamConfig {
     @Value("\${spring.kafka.bootstrap-servers:localhost:9092}")
     private lateinit var bootstrapServers: String
 
-    @Value("\${app.schema-registry-url:http://localhost:8081}")
+    @Value("\${app.schema-registry-url}")
     private lateinit var schemaRegistryUrl: String
 
     @Value("\${spring.kafka.producer.retries:3}")

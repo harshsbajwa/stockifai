@@ -91,5 +91,4 @@ WORKDIR /opt/spark-app
 ENTRYPOINT [ "/opt/spark/bin/spark-submit", \
     "--class", "com.harshsbajwa.stockifai.processing.RiskCalculationEngineKt", \
     "--master", "local[*]", \
-    "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.apache.spark:spark-avro_2.12:3.5.5", \
     "/opt/spark-app/app.jar" ]

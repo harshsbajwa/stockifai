@@ -1,6 +1,6 @@
 spring:
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS_K3S}
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS}
     producer:
       properties:
-        schema.registry.url: ${SCHEMA_REGISTRY_URL_K3S}
+        schema.registry.url: ${APP_SCHEMA_REGISTRY_URL}

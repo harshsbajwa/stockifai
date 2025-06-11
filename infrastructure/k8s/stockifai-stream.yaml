@@ -46,20 +46,20 @@ spec:
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "k3s-production"
-        - name: KAFKA_BOOTSTRAP_SERVERS_K3S
+        - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
           value: "kafka.stockifai.svc.cluster.local:9092"
-        - name: SCHEMA_REGISTRY_URL_K3S
+        - name: SCHEMA_REGISTRY_URL
           value: "http://schema-registry-svc.stockifai.svc.cluster.local:8081"
         envFrom:
         - secretRef:
             name: stockifai-secrets
         resources:
           requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
             memory: "512Mi"
             cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
         startupProbe:
           httpGet:
             path: /stream/actuator/health

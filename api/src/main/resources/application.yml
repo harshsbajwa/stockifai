@@ -62,7 +62,7 @@ app:
 
 logging:
   level:
-    com.harshsbajwa.stockifai: INFO
+    com.harshsbajwa.stockifai: DEBUG
     org.springframework.security: WARN
     com.datastax.oss.driver: WARN
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
@@ -78,23 +78,23 @@ spring:
       
 server:
   error:
-    include-message: never
-    include-binding-errors: never
-    include-stacktrace: never
-    include-exception: false
+    include-message: ALWAYS
+    include-binding-errors: ALWAYS
+    include-stacktrace: ALWAYS
+    include-exception: true
 
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   security:
     jwt:
-      enabled: true
+      enabled: false
   rate-limiting:
     enabled: true
     requests-per-minute: 60
 
 logging:
   level:
-    com.harshsbajwa.stockifai: INFO
+    com.harshsbajwa.stockifai: DEBUG
     org.springframework: WARN
     root: WARN

@@ -4,7 +4,7 @@ metadata:
   name: stockifai-api
   namespace: stockifai
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: stockifai-api
@@ -21,7 +21,6 @@ spec:
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "k3s-production"
-        # This will be populated by the secret
         - name: INFLUXDB_URL
           value: "http://influxdb.stockifai.svc.cluster.local:8086"
         envFrom:
@@ -33,22 +32,22 @@ spec:
           readOnly: true
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "512Mi"
+            cpu: "100m"
           limits:
-            memory: "2Gi"
-            cpu: "1"
+            memory: "1Gi"
+            cpu: "250m"
         livenessProbe:
           httpGet:
             path: /actuator/health/liveness
             port: 8080
-          initialDelaySeconds: 60
+          initialDelaySeconds: 180
           periodSeconds: 30
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
             port: 8080
-          initialDelaySeconds: 30
+          initialDelaySeconds: 45
           periodSeconds: 10
       volumes:
       - name: astra-bundle
@@ -61,35 +60,9 @@ metadata:
   name: stockifai-api
   namespace: stockifai
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - port: 8080
     targetPort: 8080
   selector:
     app: stockifai-api
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: stockifai-api-ingress
-  namespace: stockifai
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-spec:
-  tls:
-  - hosts:
-    - api.amneet.me
-    secretName: stockifai-api-tls
-  rules:
-  - host: api.amneet.me
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: stockifai-api
-            port:
-              number: 8080
