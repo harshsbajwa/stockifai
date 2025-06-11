@@ -21,6 +21,9 @@ spec:
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "k3s-production"
+        # This will be populated by the secret
+        - name: INFLUXDB_URL
+          value: "http://influxdb.stockifai.svc.cluster.local:8086"
         envFrom:
         - secretRef:
             name: stockifai-secrets
@@ -34,16 +37,16 @@ spec:
             cpu: "500m"
           limits:
             memory: "2Gi"
-            cpu: "1000m"
+            cpu: "1"
         livenessProbe:
           httpGet:
-            path: /actuator/health
+            path: /actuator/health/liveness
             port: 8080
           initialDelaySeconds: 60
           periodSeconds: 30
         readinessProbe:
           httpGet:
-            path: /actuator/health
+            path: /actuator/health/readiness
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -77,10 +80,10 @@ metadata:
 spec:
   tls:
   - hosts:
-    - api.stockifai.amneet.me
+    - api.amneet.me
     secretName: stockifai-api-tls
   rules:
-  - host: api.stockifai.amneet.me
+  - host: api.amneet.me
     http:
       paths:
       - path: /

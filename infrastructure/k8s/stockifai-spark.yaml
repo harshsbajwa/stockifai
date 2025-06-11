@@ -20,7 +20,14 @@ spec:
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: "kafka.stockifai.svc.cluster.local:9092"
         - name: SCHEMA_REGISTRY_URL
-          value: "http://schema-registry.stockifai.svc.cluster.local:8081"
+          value: "http://schema-registry-svc.stockifai.svc.cluster.local:8081"
+        - name: INFLUXDB_URL
+          value: "http://influxdb.stockifai.svc.cluster.local:8086"
+        - name: INFLUXDB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: stockifai-secrets
+              key: INFLUXDB_TOKEN
         envFrom:
         - secretRef:
             name: stockifai-secrets

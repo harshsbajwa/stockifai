@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-influxdb-job
+  namespace: stockifai
+spec:
+  template:
+    spec:
+      containers:
+      - name: influxdb-initializer
+        image: influxdb:2.7
+        command: ["/bin/bash", "/app/init-influxdb.sh"]
+        volumeMounts:
+        - name: init-script
+          mountPath: /app/init-influxdb.sh
+          subPath: init-influxdb.sh
+        env:
+        - name: INFLUXDB_URL
+          value: "http://influxdb:8086"
+        - name: INFLUXDB_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: stockifai-secrets
+              key: INFLUXDB_BUCKET
+        - name: INFLUXDB_ORG
+          valueFrom:
+            secretKeyRef:
+              name: stockifai-secrets
+              key: INFLUXDB_ORG
+        - name: INFLUXDB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: stockifai-secrets
+              key: INFLUXDB_ADMIN_TOKEN
+      volumes:
+      - name: init-script
+        configMap:
+          name: influxdb-init-script-cm
+          defaultMode: 0777
+      restartPolicy: OnFailure
+  backoffLimit: 4

@@ -42,7 +42,7 @@ management:
         enabled: true
 
 app:
-  schema-registry-url: ${SCHEMA_REGISTRY_URL_K3S:http://localhost:8081}
+  schema-registry-url: ${spring.kafka.producer.properties.schema.registry.url}
   stocks: ${MONITORED_STOCKS:PANW,NVDA,AAPL,MSFT,RBLX,NFLX,PYPL,AB,GOOGL,DIS,TSLA,CRM,V,MU,AXP}
   alphavantage:
     api:

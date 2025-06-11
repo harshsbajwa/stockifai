@@ -8,6 +8,7 @@ import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 @Service
@@ -15,33 +16,49 @@ class NewsService(
     private val newsRepository: NewsRepository,
 ) {
     private val logger = LoggerFactory.getLogger(NewsService::class.java)
+    private val utcZone = ZoneId.of("UTC")
 
     fun getRecentNews(
         hours: Long = 24,
         limit: Int = 50,
+        searchDepthInDays: Int = 7,
     ): List<NewsItem> {
+        logger.info("Fetching recent news for the last {} hours with a limit of {} and search depth of {} days.", hours, limit, searchDepthInDays)
         return try {
-            val endDate = LocalDate.now()
-            val startDate = endDate.minusDays(hours / 24 + 1)
-
             val news = mutableListOf<NewsEntity>()
-            var currentDate = startDate
+            val endDate = LocalDate.now(utcZone)
 
-            while (!currentDate.isAfter(endDate)) {
+            for (i in 0 until searchDepthInDays) {
+                val currentDate = endDate.minusDays(i.toLong())
                 val dateBucket = currentDate.toString()
                 val pageRequest = PageRequest.of(0, limit)
-                val dayNews = newsRepository.findByDateBucketOrderByTimestampDesc(dateBucket, pageRequest)
-                news.addAll(dayNews.content)
-                currentDate = currentDate.plusDays(1)
 
-                if (news.size >= limit) break
+                logger.debug("Querying Cassandra for dateBucket: {}", dateBucket)
+                val dayNews = newsRepository.findByDateBucketOrderByTimestampDesc(dateBucket, pageRequest)
+
+                if (dayNews.hasContent()) {
+                    logger.info("Found {} news items for dateBucket: {}", dayNews.content.size, dateBucket)
+                    news.addAll(dayNews.content)
+                }
+
+                if (news.size >= limit) {
+                    logger.info("Collected {} items (>= limit of {}), stopping search.", news.size, limit)
+                    break
+                }
             }
+            logger.info("Total news items fetched from Cassandra across all buckets: {}", news.size)
 
             val cutoffTime = Instant.now().minus(hours, ChronoUnit.HOURS)
-            return news
+            logger.info("Filtering collected news to only include items after {}.", cutoffTime)
+
+            val filteredNews = news
                 .filter { Instant.ofEpochMilli(it.primaryKey.timestamp).isAfter(cutoffTime) }
+                .sortedByDescending { it.primaryKey.timestamp }
                 .take(limit)
                 .map { convertToNewsItem(it) }
+
+            logger.info("Returning {} news items after final filtering and limiting.", filteredNews.size)
+            return filteredNews
         } catch (e: Exception) {
             logger.error("Error fetching recent news", e)
             emptyList()
@@ -77,3 +94,4 @@ class NewsService(
             relatedSymbol = entity.relatedSymbol,
         )
 }
+

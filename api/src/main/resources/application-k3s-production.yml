@@ -12,7 +12,7 @@ spring:
       keyspace-name: ${astra.db.keyspace-name}
       schema-action: NONE
 influxdb:
-  url: ${INFLUXDB_CLOUD_URL}
-  token: ${INFLUXDB_CLOUD_TOKEN}
-  org: ${INFLUXDB_CLOUD_ORG}
-  bucket: ${INFLUXDB_CLOUD_BUCKET}
+  url: ${INFLUXDB_URL}
+  token: ${INFLUXDB_TOKEN}
+  org: ${INFLUXDB_ORG}
+  bucket: ${INFLUXDB_BUCKET}
