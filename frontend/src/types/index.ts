@@ -99,7 +99,7 @@ export interface StockMover {
 }
   
 export interface EconomicIndicator {
-  seriesId: string;
+  series_id: string;
   observations: EconomicObservation[];
   metadata?: EconomicIndicatorMetadata | null;
 }
@@ -112,7 +112,7 @@ export interface EconomicObservation {
 }
 
 export interface EconomicIndicatorMetadata {
-  seriesId: string;
+  series_id: string;
   title?: string | null;
   frequency?: string | null;
   units?: string | null;
@@ -121,7 +121,7 @@ export interface EconomicIndicatorMetadata {
 }
 
 export interface EconomicDataPoint {
-  seriesId: string;
+  series_id: string;
   value: number;
   timestamp: string;
 }

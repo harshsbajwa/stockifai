@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { StockAPI, MarketAPI, NewsAPI, EconomicAPI } from '../services/api';
 import { usePolling } from '../hooks/useApi';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -25,35 +25,51 @@ const Dashboard: React.FC = () => {
   const [stockTimeSeriesRangeHours, setStockTimeSeriesRangeHours] = useState<number>(24);
   const [economicTimeSeriesRangeDays, setEconomicTimeSeriesRangeDays] = useState<number>(30);
 
+  const fetchStockSummaries = useCallback(() => StockAPI.getAllStockSummaries(0, 100), []);
   const { data: stockSummariesResponse, loading: stocksLoading, error: stocksError, refetch: refetchStocks } = 
-    usePolling(() => StockAPI.getAllStockSummaries(0, 100), POLLING_INTERVAL_PRIMARY);
+    usePolling(fetchStockSummaries, POLLING_INTERVAL_PRIMARY);
 
+  const fetchMarketOverview = useCallback(() => MarketAPI.getMarketOverview(), []);
   const { data: marketOverview, loading: marketLoading, error: marketError } = 
-    usePolling(() => MarketAPI.getMarketOverview(), POLLING_INTERVAL_SECONDARY);
+    usePolling(fetchMarketOverview, POLLING_INTERVAL_SECONDARY);
 
+  const fetchNews = useCallback(() => NewsAPI.getRecentNews(48, 15), []);
   const { data: newsData, loading: newsLoading, error: newsError } = 
-    usePolling(() => NewsAPI.getRecentNews(48, 15), POLLING_INTERVAL_NEWS);
+    usePolling(fetchNews, POLLING_INTERVAL_NEWS);
 
+  const fetchEconomicIndicatorSummaries = useCallback(() => EconomicAPI.getAllIndicatorSummaries(0, 10), []);
   const { data: economicIndicatorSummariesResponse, loading: economicLoading, error: economicError } = 
-    usePolling(() => EconomicAPI.getAllIndicatorSummaries(0, 10), POLLING_INTERVAL_SECONDARY);
+    usePolling(fetchEconomicIndicatorSummaries, POLLING_INTERVAL_SECONDARY);
 
+  const fetchStockTimeSeries = useCallback(() => {
+    if (!selectedStockSymbol) return Promise.resolve(null);
+    return StockAPI.getStockTimeSeries(selectedStockSymbol, stockTimeSeriesRangeHours);
+  }, [selectedStockSymbol, stockTimeSeriesRangeHours]);
   const { data: stockTimeSeriesData, loading: stockTimeSeriesLoading, error: stockTimeSeriesError, refetch: refetchStockTimeSeries } = 
     usePolling(
-      () => selectedStockSymbol ? StockAPI.getStockTimeSeries(selectedStockSymbol, stockTimeSeriesRangeHours) : Promise.resolve(null),
+      fetchStockTimeSeries,
       POLLING_INTERVAL_PRIMARY,
       [selectedStockSymbol, stockTimeSeriesRangeHours]
     );
   
-  const { data: currentSelectedStockSummary, refetch: refetchCurrentSelectedStockSummary } =  
+  const fetchCurrentSelectedStockSummary = useCallback(() => {
+    if (!selectedStockSymbol) return Promise.resolve(null);
+    return StockAPI.getStockSummary(selectedStockSymbol);
+  }, [selectedStockSymbol]);
+  const { data: currentSelectedStockSummary, refetch: refetchCurrentSelectedStockSummary } =
     usePolling(
-      () => selectedStockSymbol ? StockAPI.getStockSummary(selectedStockSymbol) : Promise.resolve(null),
+      fetchCurrentSelectedStockSummary,
       POLLING_INTERVAL_PRIMARY,
       [selectedStockSymbol]
     );
 
+  const fetchEconomicTimeSeries = useCallback(() => {
+    if (!selectedEconomicIndicatorId) return Promise.resolve(null);
+    return EconomicAPI.getEconomicIndicatorTimeSeries(selectedEconomicIndicatorId, economicTimeSeriesRangeDays);
+  }, [selectedEconomicIndicatorId, economicTimeSeriesRangeDays]);
   const { data: economicTimeSeriesData, loading: economicTimeSeriesLoading, error: economicTimeSeriesError, refetch: refetchEconomicTimeSeries } = 
     usePolling(
-      () => selectedEconomicIndicatorId ? EconomicAPI.getEconomicIndicatorTimeSeries(selectedEconomicIndicatorId, economicTimeSeriesRangeDays) : Promise.resolve(null),
+      fetchEconomicTimeSeries,
       POLLING_INTERVAL_SECONDARY,
       [selectedEconomicIndicatorId, economicTimeSeriesRangeDays]
     );
@@ -67,7 +83,7 @@ const Dashboard: React.FC = () => {
   const closeStockTimeSeriesPanel = () => setSelectedStockSymbol(null);
 
   const handleEconomicIndicatorClick = (indicator: EconomicIndicator) => {
-    setSelectedEconomicIndicatorId(indicator.seriesId);
+    setSelectedEconomicIndicatorId(indicator.series_id);
     refetchEconomicTimeSeries();
   };
   const closeEconomicTimeSeriesPanel = () => setSelectedEconomicIndicatorId(null);
@@ -207,13 +223,13 @@ const Dashboard: React.FC = () => {
                   <div className="space-y-3 max-h-[18rem] overflow-y-auto">
                     {displayedEconomicIndicators.map((indicator) => (
                       <div 
-                        key={indicator.seriesId} 
+                        key={indicator.series_id} 
                         className="p-2.5 bg-gray-50 rounded-md hover:bg-gray-100 cursor-pointer"
                         onClick={() => handleEconomicIndicatorClick(indicator)}
                       >
                         <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-gray-700 truncate pr-2" title={indicator.metadata?.title || indicator.seriesId}>
-                            {indicator.metadata?.title || indicator.seriesId}
+                          <span className="text-sm font-medium text-gray-700 truncate pr-2" title={indicator.metadata?.title || indicator.series_id}>
+                            {indicator.metadata?.title || indicator.series_id}
                           </span>
                           <span className="text-sm font-semibold text-gray-900">
                             {indicator.observations[0]?.value?.toFixed(2) ?? 'N/A'}
